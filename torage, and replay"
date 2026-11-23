@@ -1,0 +1,41 @@
+ .gitignore                                         |  11 [32m+[m
+ README_COORDINATE_REPLAY.md                        |  95 [32m+++++[m
+ README_FOUR_PART_FOUNDATION.md                     | 144 [32m+++++++[m
+ README_NAVIGATOR_IMPLEMENTATION.md                 | 155 [32m+++++++[m
+ README_PHASE1.md                                   | 117 [32m+++++[m
+ README_RECOVERY.md                                 |  46 [32m++[m
+ README_STICKYNOTE_NAVIGATOR_INTEGRATION.md         | 112 [32m+++++[m
+ license.md                                         |  20 [32m+[m
+ main.py                                            |  34 [32m++[m
+ oais/Base_Data/coordinate_data/34/34/34/34/34.json |  15 [32m+[m
+ oais/Base_Data/current_coordinate.json             |  12 [32m+[m
+ oais/Commands/Navigator/Navigator.py               | 180 [32m++++++++[m
+ oais/Commands/Navigator/NavigatorEngine.py         | 381 [32m+++++++++++++++++[m
+ oais/Commands/Navigator/__init__.py                |   0
+ oais/Commands/Replay/Replay.py                     |  77 [32m++++[m
+ oais/Commands/Replay/ReplayEngine.py               |  94 [32m+++++[m
+ oais/Commands/Replay/__init__.py                   |   1 [32m+[m
+ oais/Commands/StickyNote/StickyNote.py             | 230 [32m++++++++++[m
+ oais/Commands/StickyNote/StickyNoteEngine.py       | 905 [32m+++++++++++++++++++++++++++++++++++++++[m
+ oais/Commands/StickyNote/__init__.py               |   0
+ oais/Commands/__init__.py                          |   0
+ oais/Terminal/Base_Terminal.py                     | 179 [32m++++++++[m
+ oais/Terminal/Oais_Terminal.py                     | 328 [32m++++++++++++++[m
+ oais/Terminal/__init__.py                          |   0
+ oais/__init__.py                                   |   0
+ oais/meta_terminal.py                              | 402 [32m++++++++++++++++++[m
+ oais/runtime.py                                    |   5 [32m+[m
+ oais/utils/__init__.py                             |   0
+ oais/utils/counter.py                              | 179 [32m++++++++[m
+ oais/utils/data_manager.py                         | 915 [32m++++++++++++++++++++++++++++++++++++++++[m
+ oais/utils/virtual_counter.py                      | 218 [32m++++++++++[m
+ tests/legacy/test_virtual_phase1.py                | 122 [32m++++++[m
+ tests/test_bridge_integration.py                   |  61 [32m+++[m
+ tests/test_coordinate_replay.py                    |  98 [32m+++++[m
+ tests/test_four_part_foundation.py                 | 178 [32m++++++++[m
+ tests/test_navigator.py                            | 291 [32m+++++++++++++[m
+ tests/test_navigator_bridge.py                     |  86 [32m++++[m
+ tests/test_path_universe_hash.py                   |  56 [32m+++[m
+ tests/test_sticky_logical_bridge.py                |  90 [32m++++[m
+ tests/test_sticky_logical_v4.py                    | 264 [32m++++++++++++[m
+ 40 files changed, 6101 insertions(+)

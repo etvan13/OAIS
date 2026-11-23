@@ -1,0 +1,291 @@
+{
+    "0 0 0 0 0 0": {
+        "objects": {
+            "pole_function": [
+                {
+                    "schema_version": 3,
+                    "counter_universe": 0,
+                    "definition": {
+                        "name": "cubic_offset",
+                        "version": 1,
+                        "params": {
+                            "scale": 1
+                        }
+                    },
+                    "entry_seed": "cf86946f98cf43e5a8a68fa611b47cf1",
+                    "id": "pi_3711c254d87047c6",
+                    "type": "pole_function",
+                    "coordinate": "0 0 0 0 0 0"
+                }
+            ],
+            "logical_command": [
+                {
+                    "schema_version": 4,
+                    "command": "help",
+                    "address": [
+                        "0 0 0 0 0 0",
+                        [
+                            {
+                                "activation": "pi_3711c254d87047c6",
+                                "step": 0,
+                                "leg": "away"
+                            }
+                        ],
+                        "pi_3711c254d87047c6",
+                        319309280030538821683557630628946890736
+                    ],
+                    "counter_universe": 0,
+                    "direction": "away",
+                    "source": "base",
+                    "navigation": {
+                        "op": "auto"
+                    },
+                    "success": true,
+                    "event_type": "command",
+                    "host_after": "1 0 0 0 0 0",
+                    "host_universe_after": 0,
+                    "follow_update": true,
+                    "id": "se_3f7e283a32d829cb9bdd52aaa9831b57",
+                    "type": "logical_command",
+                    "coordinate": "0 0 0 0 0 0"
+                }
+            ],
+            "sticky_note": [
+                {
+                    "schema_version": 4,
+                    "storage": "logical",
+                    "title": "cubic_example",
+                    "start": [
+                        "0 0 0 0 0 0",
+                        [
+                            {
+                                "activation": "pi_3711c254d87047c6",
+                                "step": 0,
+                                "leg": "away"
+                            }
+                        ],
+                        "pi_3711c254d87047c6",
+                        319309280030538821683557630628946890736
+                    ],
+                    "start_counter_universe": 0,
+                    "start_direction": "away",
+                    "initial_state": {
+                        "version": 1,
+                        "virtual": {
+                            "coordinate": "0 0 0 0 0 0",
+                            "universe": 0,
+                            "counter_universe": 0,
+                            "path_universe": 319309280030538821683557630628946890736,
+                            "imaginary": [
+                                {
+                                    "activation": "pi_3711c254d87047c6",
+                                    "step": 0,
+                                    "leg": "away"
+                                }
+                            ],
+                            "function": "pi_3711c254d87047c6",
+                            "direction": "away",
+                            "mode": "free",
+                            "host": {
+                                "coordinate": "0 0 0 0 0 0",
+                                "counter_universe": 0
+                            }
+                        },
+                        "layers": [
+                            {
+                                "id": "pi_3711c254d87047c6",
+                                "pole_index": 0,
+                                "pole_real": "0 0 0 0 0 0",
+                                "pole_counter_universe": 0,
+                                "parent": null,
+                                "opened_at": null,
+                                "k": 0,
+                                "leg": "away"
+                            }
+                        ],
+                        "auto_enabled": true
+                    },
+                    "route_seed": "ca5d379130dc4664a210023c3f8f12dc",
+                    "event_count": 6,
+                    "after": [
+                        "0 0 0 0 0 0",
+                        [],
+                        "linear_offset",
+                        270000739105185199248462453810322402312
+                    ],
+                    "after_counter_universe": 0,
+                    "after_direction": "linear",
+                    "scope": "base",
+                    "id": "26c0fb3a5061",
+                    "type": "sticky_note",
+                    "coordinate": "0 0 0 0 0 0"
+                }
+            ]
+        }
+    },
+    "1 0 0 0 0 0": {
+        "objects": {
+            "logical_command": [
+                {
+                    "schema_version": 4,
+                    "command": "help",
+                    "address": [
+                        "1 0 0 0 0 0",
+                        [
+                            {
+                                "activation": "pi_3711c254d87047c6",
+                                "step": 1,
+                                "leg": "away"
+                            }
+                        ],
+                        "pi_3711c254d87047c6",
+                        221593826276538788235420185005629727233
+                    ],
+                    "counter_universe": 0,
+                    "direction": "away",
+                    "source": "base",
+                    "navigation": {
+                        "op": "auto"
+                    },
+                    "success": true,
+                    "event_type": "command",
+                    "host_after": "2 0 0 0 0 0",
+                    "host_universe_after": 0,
+                    "follow_update": true,
+                    "id": "se_2b8fa4278f614710139c40fb3f1f3bb2",
+                    "type": "logical_command",
+                    "coordinate": "1 0 0 0 0 0"
+                },
+                {
+                    "schema_version": 4,
+                    "command": "help",
+                    "address": [
+                        "1 0 0 0 0 0",
+                        [
+                            {
+                                "activation": "pi_3711c254d87047c6",
+                                "step": 1,
+                                "leg": "toward"
+                            }
+                        ],
+                        "pi_3711c254d87047c6",
+                        323525146482823672261372665468766602478
+                    ],
+                    "counter_universe": 0,
+                    "direction": "toward",
+                    "source": "base",
+                    "navigation": {
+                        "op": "auto"
+                    },
+                    "success": true,
+                    "event_type": "command",
+                    "host_after": "5 0 0 0 0 0",
+                    "host_universe_after": 0,
+                    "follow_update": true,
+                    "id": "se_108a3617d0593e895f132bad532e3ea4",
+                    "type": "logical_command",
+                    "coordinate": "1 0 0 0 0 0"
+                }
+            ]
+        }
+    },
+    "8 0 0 0 0 0": {
+        "objects": {
+            "logical_command": [
+                {
+                    "schema_version": 4,
+                    "command": "help",
+                    "address": [
+                        "8 0 0 0 0 0",
+                        [
+                            {
+                                "activation": "pi_3711c254d87047c6",
+                                "step": 2,
+                                "leg": "away"
+                            }
+                        ],
+                        "pi_3711c254d87047c6",
+                        250258045281826840734480817361269523885
+                    ],
+                    "counter_universe": 0,
+                    "direction": "away",
+                    "source": "base",
+                    "navigation": {
+                        "op": "auto"
+                    },
+                    "success": true,
+                    "event_type": "command",
+                    "host_after": "3 0 0 0 0 0",
+                    "host_universe_after": 0,
+                    "follow_update": true,
+                    "id": "se_bcd24a3114f0f91a84fb6eea78e37a8e",
+                    "type": "logical_command",
+                    "coordinate": "8 0 0 0 0 0"
+                },
+                {
+                    "schema_version": 4,
+                    "command": "help",
+                    "address": [
+                        "8 0 0 0 0 0",
+                        [
+                            {
+                                "activation": "pi_3711c254d87047c6",
+                                "step": 2,
+                                "leg": "toward"
+                            }
+                        ],
+                        "pi_3711c254d87047c6",
+                        98130241690358260463641782122050794261
+                    ],
+                    "counter_universe": 0,
+                    "direction": "toward",
+                    "source": "base",
+                    "navigation": {
+                        "op": "auto"
+                    },
+                    "success": true,
+                    "event_type": "command",
+                    "host_after": "4 0 0 0 0 0",
+                    "host_universe_after": 0,
+                    "follow_update": true,
+                    "id": "se_d3c192f9f563111df9f55d8ad970a092",
+                    "type": "logical_command",
+                    "coordinate": "8 0 0 0 0 0"
+                }
+            ]
+        }
+    },
+    "27 0 0 0 0 0": {
+        "objects": {
+            "logical_command": [
+                {
+                    "schema_version": 4,
+                    "command": "navigator turn",
+                    "address": [
+                        "27 0 0 0 0 0",
+                        [
+                            {
+                                "activation": "pi_3711c254d87047c6",
+                                "step": 3,
+                                "leg": "away"
+                            }
+                        ],
+                        "pi_3711c254d87047c6",
+                        25725637759794690383379378626483566405
+                    ],
+                    "counter_universe": 0,
+                    "direction": "away",
+                    "source": "oais",
+                    "navigation": {
+                        "op": "turn"
+                    },
+                    "success": true,
+                    "event_type": "command",
+                    "id": "se_e77c2f7b562987d86da03066b7426843",
+                    "type": "logical_command",
+                    "coordinate": "27 0 0 0 0 0"
+                }
+            ]
+        }
+    }
+}

@@ -1,0 +1,15 @@
+{
+    "34 34 34 34 34 34": {
+        "messages": [
+            {
+                "coordinate": "34 34 34 34 34 34",
+                "title": "Kaus -> 143/314/134",
+                "message": "kaus was here",
+                "on_list": true,
+                "data": {
+                    "color": "orange"
+                }
+            }
+        ]
+    }
+}

@@ -7,5 +7,5 @@ __pycache__/
 !.env.example
 *.log
 *.tmp
-oais/Data/
+# oais/Data/
 oais/Exports/sticky_notes/
