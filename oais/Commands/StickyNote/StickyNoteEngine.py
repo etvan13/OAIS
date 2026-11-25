@@ -297,6 +297,12 @@ class StickyNoteEngine:
             return True
 
 
+    def mark_last_failed(self, command):
+        """Mark a recorded boundary attempt that failed before commit."""
+        with self._lock:
+            if self.path and self.path[-1]["value"] == command:
+                self.path[-1]["success"] = False
+
     def record_command(
         self,
         command,

@@ -36,10 +36,10 @@ class UniverseChainAudit(unittest.TestCase):
             t.process_command('function k**3')
             t.process_command('sticky save zero_moves')
             note = t.sticky_note.get_note('zero_moves')
-            self.assertEqual([e['command'] for e in note['plan']], ['function k**2','virtual','function k**3'])
+            self.assertEqual([e['command'] for e in note['plan']], ['sticky start','function k**2','virtual','function k**3','sticky save zero_moves'])
             blocks = dm.get_coordinate_node('0 0 0 0 0 0')['command_blocks']
-            self.assertEqual(len(blocks),3)
-            self.assertEqual(len({b['universe'] for b in blocks}),3)
+            self.assertEqual(len(blocks),5)
+            self.assertEqual(len({b['universe'] for b in blocks}),5)
             expected = seed_path_universe('0 0 0 0 0 0', note['id'])
             self.assertEqual(blocks[0]['universe'], f'{expected:032x}')
             # Independently regenerate the exact event-chain values for the
@@ -48,9 +48,11 @@ class UniverseChainAudit(unittest.TestCase):
             quadratic = ['0 0 0 0 0 0', [{'f':'k**2','k':0,'direction':1}], 'k**2']
             nested = ['0 0 0 0 0 0', [{'f':'k**2','k':0,'direction':1},
                      {'f':'k**3','k':0,'direction':1}], 'k**3']
-            operations = [('function k**2','open',linear,quadratic),
+            operations = [('sticky start','none',linear,linear),
+                          ('function k**2','open',linear,quadratic),
                           ('virtual','none',quadratic,quadratic),
-                          ('function k**3','push',quadratic,nested)]
+                          ('function k**3','push',quadratic,nested),
+                          ('sticky save zero_moves','none',nested,nested)]
             for i,(command,op,before,after) in enumerate(operations):
                 self.assertEqual(blocks[i]['command'],command)
                 self.assertEqual(blocks[i]['universe'],f'{expected:032x}')
@@ -69,12 +71,12 @@ class UniverseChainAudit(unittest.TestCase):
                     t.navigator_engine.reset_to_linear('0 0 0 0 0 0')
             notes=[t.sticky_note.get_note(label) for label in ['one','two']]
             blocks=dm.get_coordinate_node('0 0 0 0 0 0')['command_blocks']
-            self.assertEqual(len(blocks),4)
-            self.assertEqual(len({b['universe'] for b in blocks}),4)
+            self.assertEqual(len(blocks),8)
+            self.assertEqual(len({b['universe'] for b in blocks}),8)
             self.assertNotEqual(notes[0]['id'],notes[1]['id'])
             for note in notes:
                 seed=seed_path_universe(note['start'],note['id'])
-                self.assertEqual(dm.load_command_block('0 0 0 0 0 0',f'{seed:032x}')['command'],'virtual')
+                self.assertEqual(dm.load_command_block('0 0 0 0 0 0',f'{seed:032x}')['command'],'sticky start')
 
     def test_digest_is_history_sensitive_and_repeatable(self):
         start='0 0 0 0 0 0'

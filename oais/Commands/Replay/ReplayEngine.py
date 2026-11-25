@@ -20,6 +20,7 @@ class ReplayEngine:
         self.note = None
         self.events = []
         self.cursor = 0
+        self.view = "host"
 
     def _reader(self):
         return StickyNoteEngine(data_manager=self.data_manager,
@@ -41,7 +42,7 @@ class ReplayEngine:
         lines.append("Choose a number, title, or note ID to view its commands.")
         return "\n".join(lines)
 
-    def load(self, identifier):
+    def load(self, identifier, *, view=None):
         """Read private note plans first; legacy notes keep existing readers."""
         if isinstance(identifier, str) and identifier.strip().isdigit():
             index = int(identifier.strip())
@@ -53,13 +54,18 @@ class ReplayEngine:
         note, events = reader.load_path(identifier)
         if not events:
             raise ValueError("Saved path contains no events.")
+        if view is not None and view not in ("host", "full"):
+            raise ValueError("Replay view must be host or full.")
         self.note = deepcopy(note)
         self.events = deepcopy(events)
         self.cursor = 0
+        if view is not None:
+            self.view = view
         return self.summary()
 
     def clear(self):
         self.note, self.events, self.cursor = None, [], 0
+        self.view = "host"
 
     def reset(self):
         self._require_loaded()
@@ -70,12 +76,26 @@ class ReplayEngine:
         if self.note is None:
             raise ValueError("No replay loaded. Use 'replay load <title>'.")
 
+    def visible_events(self):
+        """Filter presentation only; the full ordered plan remains intact."""
+        return [e for e in self.events if self.view == "full" or
+                e.get("source", "oais").lower() not in ("oais", "meta")]
+
+    def set_view(self, view):
+        if view not in ("host", "full"):
+            raise ValueError("Replay view must be host or full.")
+        self.view = view
+        self.cursor = 0
+        return self.summary() if self.note is not None else f"Replay view: {view}"
+
     def summary(self):
         self._require_loaded()
         source = "terminal-owned" if self.events[0].get("from_plan") else "coordinate-backed"
+        count = len(self.visible_events())
         return (f"REPLAY: {self.note.get('title', 'Untitled')} "
                 f"[{self.note.get('id', '?')}] | "
-                f"{self.cursor}/{len(self.events)} events | {source}, read-only")
+                f"{self.cursor}/{count} events | {self.view} view, "
+                f"{len(self.events)} total | {source}, read-only")
 
     @staticmethod
     def format_step(event, index):
@@ -101,17 +121,20 @@ class ReplayEngine:
         self._require_loaded()
         if isinstance(count, bool) or not isinstance(count, int) or count <= 0:
             raise ValueError("Step count must be a positive integer.")
-        end = min(len(self.events), self.cursor + count)
-        lines = [self.format_step(self.events[i], i + 1)
+        events = self.visible_events()
+        end = min(len(events), self.cursor + count)
+        lines = [self.format_step(events[i], i + 1)
                  for i in range(self.cursor, end)]
         self.cursor = end
+        if not events:
+            return "No host commands in this note. Use replay view full to see OAIS history."
         if not lines:
             return "End of replay. Use 'replay reset' to start again."
-        return "\n".join(lines) + f"\n[{self.cursor}/{len(self.events)}]"
+        return "\n".join(lines) + f"\n[{self.cursor}/{len(events)}]"
 
     def all(self):
         self._require_loaded()
-        return self.next(len(self.events) - self.cursor) if self.cursor < len(self.events) else self.next()
+        return self.next(max(1, len(self.visible_events()) - self.cursor))
 
     def trace(self, identifier):
         """Display a complete path without moving live navigation."""

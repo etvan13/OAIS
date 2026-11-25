@@ -49,15 +49,17 @@ class TerminalStorageTests(unittest.TestCase):
             note = term.sticky_note.get_note('example')
             self.assertEqual(note['functions'][0]['f'], 'k**3')
             self.assertEqual(note['functions'][0]['direction'], 1)
-            self.assertEqual(note['blocks'], 3)
+            self.assertEqual(note['blocks'], 5)
             self.assertEqual(len(note['functions']), 2)  # turn switches on that event
             self.assertEqual(dm.get_objects_at_coordinate('0 0 0 0 0 0', 'sticky_note'), [])
             records = dm.get_coordinate_node('0 0 0 0 0 0')['command_blocks']
             self.assertEqual(records[0]['function'], 0)
-            self.assertEqual(set(records[0]), {'command', 'universe', 'function'})
+            self.assertEqual(set(records[0]), {'command', 'universe', 'function', 'step', 'source'})
             _, replayed = term.sticky_note.load_path(note['id'])
-            self.assertEqual(len(replayed), 3)
-            self.assertEqual(replayed[-1]['value'], 'navigator turn')
+            self.assertEqual(len(replayed), 5)
+            self.assertEqual(replayed[-2]['value'], 'navigator turn'
+            )
+            self.assertEqual(replayed[-1]['value'], 'sticky stop')
 
 if __name__ == '__main__':
     unittest.main()

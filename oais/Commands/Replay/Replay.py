@@ -5,6 +5,7 @@ import json
 
 class Replay:
     def __init__(self, terminal):
+        self.terminal = terminal
         self.engine = terminal.replay_engine
         self.data_manager = terminal.data_manager
 
@@ -21,11 +22,15 @@ class Replay:
                     break
                 if not choice:
                     continue
+                text = choice if choice.lower().startswith("replay ") else "replay " + choice
                 if choice.lower() in ("exit", "back", "return"):
+                    self.terminal.record_inspection(text)
                     break
                 try:
                     print_func(self._run(choice))
+                    self.terminal.record_inspection(text)
                 except (KeyError, ValueError, TypeError, NotImplementedError) as exc:
+                    self.terminal.record_inspection(text, success=False)
                     print_func(f"Replay error: {exc}")
             return "Returning to OAIS terminal."
         try:
@@ -35,6 +40,9 @@ class Replay:
 
     def _run(self, arguments=""):
         raw = arguments.strip()
+        # Accept both menu-local commands and their prefixed forms.
+        if raw.lower().startswith("replay "):
+            raw = raw[7:].strip()
         action, _, arg = raw.partition(' ')
         action = action.lower()
         arg = arg.strip()
@@ -42,7 +50,9 @@ class Replay:
             return ("Replay commands (read-only; never re-executes commands):\n"
                     "  replay                Choose a saved Sticky Note interactively\n"
                     "  replay list           List notes in this terminal's sticky_notes.json\n"
-                    "  replay <number/title>  Show all saved commands in order\n"
+                    "  replay <number/title>  Show host commands in order\n"
+                    "  replay full <title>   Show complete OAIS + host history\n"
+                    "  replay view host/full Change view and rewind\n"
                     "  replay load <title>    Load note for step-by-step inspection\n"
                     "  replay data <6 digits> Read messages and JSON data at a coordinate\n"
                     "  replay next [count]    Advance through recorded steps\n"
@@ -51,6 +61,13 @@ class Replay:
                     "  replay status          Show current playback progress\n"
                     "  replay clear           Unload playback\n"
                     "  navigator trace <title>  Display full saved path")
+        if action == 'view':
+            return self.engine.set_view(arg.lower())
+        if action == 'full':
+            if not arg:
+                return self.engine.set_view('full')
+            self.engine.load(arg, view='full')
+            return self.engine.summary() + '\n' + self.engine.all()
         if action == 'list':
             return self.engine.list_notes()
         if action == 'data':

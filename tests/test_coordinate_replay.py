@@ -54,14 +54,14 @@ class CoordinateReplayTests(unittest.TestCase):
             before = term.navigator_engine.snapshot()
             host_before = term.host_counter.get_counters()
             oais_before = term.standalone_counter.get_counters()
-            self.assertIn('6 events', run(term, 'replay load cubic_replay'))
+            self.assertIn('5 events', run(term, 'replay load cubic_replay'))
             first = run(term, 'replay next 2')
             self.assertIn('0 0 0 0 0 0 -> 1 0 0 0 0 0', first)
             self.assertIn('1 0 0 0 0 0 -> 8 0 0 0 0 0', first)
-            self.assertIn('[2/6]', first)
-            self.assertIn('[6/6]', run(term, 'replay all'))
+            self.assertIn('[2/5]', first)
+            self.assertIn('[5/5]', run(term, 'replay all'))
             self.assertIn('End of replay', run(term, 'replay next'))
-            self.assertIn('0/6', run(term, 'replay reset'))
+            self.assertIn('0/5', run(term, 'replay reset'))
             self.assertIn('COORDINATE TRACE: cubic_replay', run(term, 'navigator trace cubic_replay'))
             self.assertEqual(before, term.navigator_engine.snapshot())
             self.assertEqual(host_before, term.host_counter.get_counters())
@@ -74,7 +74,7 @@ class CoordinateReplayTests(unittest.TestCase):
             term = self.make(folder)
             self.save_cubic(term)
             reader = ReplayEngine(DataManager(base_dir=Path(folder)/'data'))
-            self.assertIn('6 events', reader.load('cubic_replay'))
+            self.assertIn('5 events', reader.load('cubic_replay'))
             self.assertIn('27 0 0 0 0 0', reader.all())
             note, events = term.sticky_note.load_path('cubic_replay')
             event_id = term.sticky_note._logical_event_id(
@@ -84,14 +84,14 @@ class CoordinateReplayTests(unittest.TestCase):
             term.data_manager.delete_object(events[0]['logical_before'][0], 'logical_command', event_id)
             with self.assertRaisesRegex(ValueError, 'Missing or ambiguous'):
                 reader.load('cubic_replay')
-            self.assertEqual(reader.cursor, 6)  # unsuccessful load preserves prior session
+            self.assertEqual(reader.cursor, 5)  # unsuccessful load preserves prior session
 
     def test_convenience_replay_and_bad_inputs(self):
         with tempfile.TemporaryDirectory() as folder:
             term = self.make(folder)
             self.save_cubic(term)
             message = run(term, 'replay cubic_replay')
-            self.assertIn('[6/6]', message)
+            self.assertIn('[5/5]', message)
             self.assertIn('Step count must be a positive integer',
                           term.process_command('replay next 0').output)
             self.assertIn('Saved Sticky Note not found', run(term, 'replay missing_note'))

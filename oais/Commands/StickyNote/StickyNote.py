@@ -36,11 +36,19 @@ class StickyNote:
             if not command:
                 continue
             before_state = self.terminal.begin_nested_input(command)
+            text = "sticky " + command
+            action = command.split()[0].lower()
+            was_active = self.engine.active
             if command.lower() in ("exit", "back"):
-                self.terminal.end_nested_input(command, before_state)
+                self.terminal.end_nested_input(text, before_state)
                 break
+            boundary_recorded = False
+            if action in ("stop", "save", "clear"):
+                boundary_recorded = self.terminal.sticky_boundary_before(text, before_state)
             message = self.process_command(command)
-            self.terminal.end_nested_input(command, before_state)
+            if boundary_recorded and message.startswith("Could not save Sticky Note:"):
+                self.engine.mark_last_failed(text)
+            self.terminal.sticky_boundary_after(text, before_state, was_active)
             if message:
                 print(message)
         return "Returning to terminal."
@@ -53,7 +61,7 @@ class StickyNote:
         if action == "help":
             return (
                 "Sticky Note commands:\n"
-                "  start         Start recording the current terminal scope\n"
+                "  start         Start recording all commands\n"
                 "  stop          Stop recording; keep the temporary path\n"
                 "  status        Show recording state\n"
                 "  path          Show the temporary command path\n"
@@ -70,7 +78,7 @@ class StickyNote:
             if self.engine.get_path():
                 return "A temporary path exists. Save or clear it before starting again."
             self.engine.start(clear=True, metadata={
-                "scope": self.terminal.recording_scope, "storage": "logical"})
+                "scope": "all", "storage": "logical"})
             virtual = self.terminal.virtual_counter.logical_address()
             return f"Recording started at virtual {virtual}."
 

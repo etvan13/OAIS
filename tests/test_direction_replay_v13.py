@@ -89,9 +89,9 @@ class DirectionReplayV13Tests(unittest.TestCase):
             term.process_command('sticky save quadratic_roundtrip')
             note=term.sticky_note.get_note('quadratic_roundtrip')
             self.assertEqual([e['command'] for e in note['plan']], [
-                'help','backwards','forward','function k**3','help'])
+                'sticky start','help','backwards','forward','function k**3','help','sticky stop'])
             self.assertEqual([e['op'] for e in note['plan']], [
-                'auto_forward','auto_back','auto_forward','push','auto_forward'])
+                'none','auto_forward','auto_back','auto_forward','push','auto_forward','none'])
             # This is an entirely terminal-private view, without shared
             # command blocks being loaded to provide order or content.
             term.data_manager.load_command_block = lambda *args, **kwargs: (_ for _ in ()).throw(
@@ -104,21 +104,23 @@ class DirectionReplayV13Tests(unittest.TestCase):
             output=term.process_command('replay 1').output
             self.assertIn('1. [BASE] help', output)
             self.assertIn('3. [BASE] forward [failed]', output)
-            self.assertIn('4. [OAIS] function k**3', output)
-            self.assertIn('5. [BASE] help', output)
-            self.assertIn('[5/5]', output)
+            self.assertNotIn('[OAIS] function k**3', output)
+            self.assertIn('4. [BASE] help', output)
+            self.assertIn('[4/4]', output)
             self.assertEqual(term.standalone_counter.get_counters(),before_oais)
             self.assertEqual(term.navigator_engine.snapshot(),before_nav)
-            self.assertIn('0/5',term.process_command('replay reset').output)
+            self.assertIn('0/4',term.process_command('replay reset').output)
             self.assertIn('1. [BASE] help',term.process_command('replay next').output)
             self.assertIn('STICKY NOTE TRACE',term.process_command('replay trace quadratic_roundtrip').output)
             self.assertEqual(term.navigator_engine.snapshot(), before_nav)
-            self.assertEqual(term.sticky_note.get_path(), before_recording)
+            self.assertEqual(term.sticky_note.get_path()[:len(before_recording)], before_recording)
+            self.assertEqual([e['value'] for e in term.sticky_note.get_path()[len(before_recording):]],
+                             ['replay list','replay 1','replay reset','replay next','replay trace quadratic_roundtrip'])
             term.process_command('sticky clear')
             # New terminal instance can read the exact same private notes.
             reader=ReplayEngine(DataManager(base_dir=Path(folder)/'Data'),terminal_id='base')
-            self.assertIn('5 events',reader.load(note['id']))
-            self.assertIn('[5/5]', reader.all())
+            self.assertIn('4 events',reader.load(note['id']))
+            self.assertIn('[4/4]', reader.all())
 
     def test_interactive_replay_menu(self):
         with tempfile.TemporaryDirectory() as folder:

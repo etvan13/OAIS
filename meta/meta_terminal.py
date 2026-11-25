@@ -115,12 +115,13 @@ class MetaTerminal:
     """
 
     def __init__(self, starting_coordinate="0 0 0 0 0 0", data_dir=None,
-                 base_data_dir=None, persist_virtual_state=False):
+                 base_data_dir=None, persist_virtual_state=False, alternate_screen=False):
         self.starting_coordinate = starting_coordinate
         self.data_dir = Path(data_dir) if data_dir else PROJECT_ROOT / "oais" / "Data"
         self.base_data_dir = (Path(base_data_dir) if base_data_dir else
                               PROJECT_ROOT / "Base" / "Base_Data")
         self.persist_virtual_state = persist_virtual_state
+        self.alternate_screen = bool(alternate_screen)
         self.connections = {}
         self.connection = None
         self.running = False
@@ -159,7 +160,12 @@ class MetaTerminal:
         if os.name != "posix":
             raise RuntimeError("PTY mode requires Linux/WSL or another POSIX system")
         self.connection = connection
-        self._alternate = sys.stdin.isatty() and sys.stdout.isatty()
+        self._alternate = self.alternate_screen and sys.stdin.isatty() and sys.stdout.isatty()
+        if input_func is input and sys.stdin.isatty():
+            try:
+                import readline  # Enable normal line editing and arrow-key history.
+            except ImportError:
+                pass
         self.active = "host"
         self._direct = False
         self._processes = {}
@@ -193,7 +199,7 @@ class MetaTerminal:
                             if prompt == "oais":
                                 response = re.sub(r"\r", "", output)
                                 response = re.sub(r"OAIS > $", "", response).strip()
-                                self._return_to_host(summary=response)
+                                self._return_to_host(summary=response if self._alternate else "")
                         continue
                 if self.active == "oais" and self._ready["oais"] == "oais":
                     if command.lower() in ("return", self.connection.name, "exit", "base"):
@@ -357,7 +363,6 @@ class MetaTerminal:
                       "universe_after": self._host_universe})
 
     def _enter_oais(self, direct=False):
-        self.observe({"type": "config", "scope": "host" if direct else "all"})
         if not direct:
             self._transition("oais", from_role=self.connection.name, to_role="oais")
         self.active = "oais"

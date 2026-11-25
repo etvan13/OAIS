@@ -43,7 +43,7 @@ class OAISResult:
 class OaisTerminal:
     def __init__(self, counter=None, data_manager=None, sticky_note=None, runtime=None, terminal_id="oais_standalone", persist_virtual_state=True, legacy_pole_storage=False):
         self.standalone_counter = counter if counter is not None else Counter(load_state=False)
-        self.host_counter = Counter(load_state=False)
+        self.host_counter = Counter(load_state=False, persist=False)
         self.counter = self.standalone_counter
         # Separate, virtual-only position: never replaces or writes Counter.
         self.virtual_counter = VirtualCounter(
@@ -321,6 +321,9 @@ class OaisTerminal:
             action = "function"
         if name in ("navigator", "function"):
             if action in ("open", "set", "function", "custom", "child"):
+                # Invalid/usage-only commands do not open a layer.
+                if len(after["layers"]) <= len(before["layers"]):
+                    return {"op": "none"}
                 # Every activation after the root is a new independent pole.
                 opening = {"op": "push" if before["layers"] else "open",
                            "ref": after["layers"][-1]["id"],
@@ -424,9 +427,6 @@ class OaisTerminal:
                           counter_universe=after["virtual"]["counter_universe"])
         decorated = self._logical_event(
             event, before, after, nav_op, follow_update=external)
-        scope = self.sticky_note.session_metadata.get("scope", self.recording_scope)
-        if not external and scope != "all":
-            return False
         return self.sticky_note.record_event(decorated)
 
     def _own_event(self, text, before_coordinate, before_universe, *,
@@ -438,10 +438,6 @@ class OaisTerminal:
         before_nav = before_nav if before_nav is not None else after_nav
         operation = self._operation_for_own(text, before_nav, after_nav,
                                              success=success, automatic=automatic)
-        scope = self.sticky_note.session_metadata.get("scope", self.recording_scope)
-        # BASE-only recordings still require NAVIGATOR control transitions.
-        if scope != "all" and operation["op"] == "none":
-            return
         event = {
             "type": "command", "source": "oais", "value": text,
             "coordinate_before": before_coordinate,
@@ -450,7 +446,7 @@ class OaisTerminal:
             "universe_after": self.counter.universes,
             "success": success,
         }
-        self.sticky_note.record_event(self._logical_event(
+        return self.sticky_note.record_event(self._logical_event(
             event, before_nav, after_nav, operation,
             follow_update=follow_update))
 
@@ -473,11 +469,27 @@ class OaisTerminal:
         return before, universe_before, before_nav, follow_update
 
     def end_nested_input(self, command, before_state, *, success=True):
-        """Record menu inputs only while a recording is already running."""
-        if command.strip().lower().split()[0] not in ("start", "save", "clear", "stop"):
-            self._own_event(command, *before_state[:2],
-                            before_nav=before_state[2], success=success,
-                            follow_update=before_state[3])
+        return self._own_event(command, *before_state[:2],
+                        before_nav=before_state[2], success=success,
+                        follow_update=before_state[3])
+
+    def record_inspection(self, command, *, success=True):
+        """Record an inspection at the current address without a counter tick."""
+        self._own_event(command, self.counter.get_counters(), self.counter.universes,
+                        success=success)
+
+    def sticky_boundary_before(self, command, before_state):
+        """Capture stop/save/clear before their handler ends the recording."""
+        return self.end_nested_input(command, before_state)
+
+    def sticky_boundary_after(self, command, before_state, was_active, *, success=True):
+        action = command.split()[1].lower() if len(command.split()) > 1 else ""
+        if action == "start" and not was_active and self.sticky_note.active:
+            # Start captures the post-input origin; no earlier movement belongs
+            # to this recording. The opening command is a zero-step event.
+            self.record_inspection(command, success=success)
+        elif action not in ("stop", "save", "clear"):
+            self.end_nested_input(command, before_state, success=success)
 
     def default_message(self):
         return "Type 'help' for OAIS commands."
@@ -518,6 +530,19 @@ class OaisTerminal:
                 and not self._explicit_hold and name not in ("navigator", "function", "virtual", "replay")):
             coordinate, universe = self.navigation_origin()
             self.navigator_engine.reset_to_linear(coordinate, universe)
+        before_state = (before, universe_before, before_nav, follow_update)
+        sticky = name in ("sticky", "stickynote")
+        sticky_action = arguments.strip().split(" ", 1)[0].lower() if sticky else ""
+        was_active = self.sticky_note.active
+        menu = name in ("sticky", "stickynote", "navigator", "replay") and not arguments.strip()
+        boundary_recorded = False
+        if sticky and sticky_action in ("stop", "save", "clear"):
+            boundary_recorded = self.sticky_boundary_before(command, before_state)
+        elif menu:
+            if name == "replay":
+                self.record_inspection(command)
+            else:
+                self.end_nested_input(command, before_state)
         if handler is None:
             output = f"Unknown OAIS command: {name}"
         else:
@@ -535,12 +560,14 @@ class OaisTerminal:
             and bool(before_nav["layers"]) and before_nav["auto_enabled"])
         if automatic:
             self.navigator_engine.advance_host_direction(1)
-        # Sticky Note menu records its own nested inputs; never reorder those
-        # events by recording the outer command after its menu has exited.
-        if name not in ("sticky", "stickynote", "replay") and not (name == "navigator" and not arguments.strip()):
+        if boundary_recorded and (not success or str(output).startswith("Could not save Sticky Note:")):
+            self.sticky_note.mark_last_failed(command)
+        if sticky and not menu:
+            self.sticky_boundary_after(command, before_state, was_active, success=success)
+        elif not menu:
             self._own_event(command, before, universe_before, before_nav=before_nav,
                             success=success, automatic=automatic,
-                            follow_update=follow_update)
+                            follow_update=follow_update and name != "replay")
         if name != "replay":
             self.save_virtual_coordinate()
         return OAISResult(True, str(output), should_exit=(name == "exit" and not connected))

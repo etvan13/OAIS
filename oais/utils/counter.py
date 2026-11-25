@@ -15,7 +15,8 @@ BACKUP_PATH = DATA_DIR / 'current_coordinate.bak'
 
 class Counter:
 
-    def __init__(self, load_state=True, save_path=None):
+    def __init__(self, load_state=True, save_path=None, *, persist=True):
+        self.persist = bool(persist)
         self.save_path = Path(save_path) if save_path is not None else C_PATH
         self.backup_path = self.save_path.with_suffix(".bak") if save_path is not None else BACKUP_PATH
         self.counters = [0] * 6
@@ -25,7 +26,7 @@ class Counter:
 
     # --- Copy ---
     def copy(self):
-        new_counter = Counter(load_state=False, save_path=self.save_path)
+        new_counter = Counter(load_state=False, save_path=self.save_path, persist=self.persist)
         new_counter.counters = self.counters[:]
         new_counter.universes = self.universes
         return new_counter
@@ -80,6 +81,8 @@ class Counter:
 
     # --- Save ---
     def save_counters(self):
+        if not self.persist:
+            return
         self.save_path.parent.mkdir(parents=True, exist_ok=True)
         data = {'coordinate': self.get_counters(), 'coordinate_list': list(self.counters), 'universes': self.universes}
         temporary = Path(str(self.save_path) + '.tmp')

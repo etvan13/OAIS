@@ -93,10 +93,10 @@ print('standalone succeeded')
             t.process_command("sticky save generic_host")
             note = t.sticky_note.get_note("generic_host")
             self.assertEqual([event["command"] for event in note["plan"]],
-                             ["function k**2", "echo a", "help", "invalid"])
+                             ["sticky start", "function k**2", "echo a", "help", "invalid", "sticky save generic_host"])
             self.assertEqual([event["source"] for event in note["plan"]],
-                             ["oais", "counterless", "counterless", "counterless"])
-            self.assertTrue(note["plan"][-1]["failed"])
+                             ["oais", "oais", "counterless", "counterless", "counterless", "oais"])
+            self.assertTrue(note["plan"][-2]["failed"])
             self.assertEqual(len(t.replay_engine.available()), 1)
             # Reloading a counterless source is valid, not rejected as 'base or oais'.
             checkpoint = t.navigation_context()

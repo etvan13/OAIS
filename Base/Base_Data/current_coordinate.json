@@ -1,12 +1,12 @@
 {
-    "coordinate": "59 59 59 59 59 59",
+    "coordinate": "2 0 0 0 0 0",
     "coordinate_list": [
-        59,
-        59,
-        59,
-        59,
-        59,
-        59
+        2,
+        0,
+        0,
+        0,
+        0,
+        0
     ],
-    "universes": -1
+    "universes": 0
 }

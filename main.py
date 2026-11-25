@@ -22,9 +22,11 @@ def main(argv=None):
                         help="OAIS data directory (does not relocate BASE data)")
     parser.add_argument("--base-data-dir", type=Path, default=None,
                         help="Optional isolated BASE data directory")
+    parser.add_argument("--alternate-screen", action="store_true",
+                        help="Use separate OAIS screen instead of normal scrollback")
     args = parser.parse_args(argv)
     meta = MetaTerminal(starting_coordinate=args.start, data_dir=args.data_dir,
-                        base_data_dir=args.base_data_dir)
+                        base_data_dir=args.base_data_dir, alternate_screen=args.alternate_screen)
     if args.mode == "base":
         from meta.Connections.Base import BaseConnection
         BaseConnection(meta).run_standalone()

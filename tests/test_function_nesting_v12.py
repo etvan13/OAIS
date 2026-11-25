@@ -97,9 +97,9 @@ class FunctionNestingV12Tests(unittest.TestCase):
             self.assertEqual(note['start'], '9 0 0 0 0 0')
             self.assertEqual(note['end'], '4 0 0 0 0 0')
             self.assertEqual(note['start_state']['functions'], [{'f':'k**2', 'k':3, 'direction':1}])
-            self.assertEqual(note['plan'][0]['command'], 'function k**3')
-            self.assertEqual(note['plan'][0]['op'], 'push')
-            self.assertEqual(note['plan'][0]['f'], 'k**3')
+            self.assertEqual(note['plan'][1]['command'], 'function k**3')
+            self.assertEqual(note['plan'][1]['op'], 'push')
+            self.assertEqual(note['plan'][1]['f'], 'k**3')
             self.assertEqual(t.data_manager.list_objects('pole_function'), [])
             saved = t.data_manager.load_terminal_data('base', 'sticky_notes')['notes'][-1]
             self.assertEqual(saved, note)

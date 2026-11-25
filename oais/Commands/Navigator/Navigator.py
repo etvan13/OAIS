@@ -115,6 +115,7 @@ class Navigator:
                 continue
             before_state = self.terminal.begin_nested_input(command)
             if command.lower() in ("exit", "back"):
+                self.terminal.end_nested_input("navigator " + command, before_state)
                 break
             success = True
             try:

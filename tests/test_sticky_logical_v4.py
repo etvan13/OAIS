@@ -59,18 +59,18 @@ class LogicalStickyNoteTests(unittest.TestCase):
             self.assertEqual(note['schema_version'], 4)
             self.assertEqual(note['start'][0], '0 0 0 0 0 0')
             self.assertEqual(note['after'][0], '4 1 0 0 0 0')
-            self.assertEqual(note['event_count'], 6)
+            self.assertEqual(note['event_count'], 8)
             self.assertNotIn('events', note)
             self.assertNotIn('event_refs', note)
             other = StickyNoteEngine(data_manager=DataManager(base_dir=Path(folder)/'data'))
             _, events = other.load_path(note['id'])
             self.assertEqual([e['value'] for e in events],
-                             ['help','help','help','navigator turn','help','help'])
+                             ['sticky start','help','help','help','navigator turn','help','help','sticky stop'])
             self.assertEqual([e['logical_before'][0].split()[0] for e in events],
-                             ['0','1','8','27','8','27'])
+                             ['0','0','1','8','27','8','27','4'])
             self.assertEqual([e['logical_after'][0].split()[0] for e in events],
-                             ['1','8','27','8','27','4'])
-            self.assertNotEqual(events[2]['logical_before'][-1], events[4]['logical_before'][-1])
+                             ['0','1','8','27','8','27','4','4'])
+            self.assertNotEqual(events[3]['logical_before'][-1], events[5]['logical_before'][-1])
             records = dm.load_logical_commands('8 0 0 0 0 0')
             self.assertEqual(len(records), 2)
             for r in records:
@@ -78,7 +78,7 @@ class LogicalStickyNoteTests(unittest.TestCase):
                 self.assertNotIn('next', r)
                 self.assertNotIn('definition', r)
             with self.assertRaises(KeyError):
-                dm.load_pole_function('8 0 0 0 0 0', events[2]['logical_before'][2])
+                dm.load_pole_function('8 0 0 0 0 0', events[3]['logical_before'][2])
 
     def test_nested_pole_saves_open_child_first_step_and_parent_resumes(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -94,9 +94,9 @@ class LogicalStickyNoteTests(unittest.TestCase):
             note = saved(term, 'nested')
             _, path = StickyNoteEngine(data_manager=DataManager(base_dir=Path(folder)/'data')).load_path(note['id'])
             self.assertEqual([int(e['logical_after'][0].split()[0]) for e in path],
-                             [1,8,27,8,8,7,6,7,6,5,4])
-            self.assertEqual(path[4]['navigation']['op'], 'push')
-            self.assertEqual(len(path[4]['logical_after'][1]), 2)
+                             [0,1,8,27,8,8,7,6,7,6,5,4,4])
+            self.assertEqual(path[5]['navigation']['op'], 'push')
+            self.assertEqual(len(path[5]['logical_after'][1]), 2)
             # BASE commands following an explicit turn now advance the
             # newest active function outward (+1), not in prior leg direction.
             self.assertEqual(len(path[-2]['logical_after'][1]), 2)
@@ -114,12 +114,12 @@ class LogicalStickyNoteTests(unittest.TestCase):
             base(term); base(term)
             note = saved(term, 'constant')
             _, path = term.sticky_note.load_path(note['id'])
-            self.assertEqual(len(path), 6)
+            self.assertEqual(len(path), 8)
             self.assertEqual({e['logical_before'][0] for e in path}, {'0 0 0 0 0 0'})
-            self.assertEqual(len({e['logical_before'][3] for e in path}), 6)
+            self.assertEqual(len({e['logical_before'][3] for e in path[1:-1]}), 6)
             objects = dm.get_objects_at_coordinate('0 0 0 0 0 0', 'logical_command')
-            self.assertEqual(len(objects), 6)
-            self.assertEqual(len({o['id'] for o in objects}), 6)
+            self.assertEqual(len(objects), 8)
+            self.assertEqual(len({o['id'] for o in objects}), 8)
 
     def test_paused_identical_address_repeated_and_two_independent_notes(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -136,12 +136,12 @@ class LogicalStickyNoteTests(unittest.TestCase):
             reader = StickyNoteEngine(data_manager=DataManager(base_dir=Path(folder)/'data'))
             a = reader.load_path(first['id'])[1]
             b = reader.load_path(second['id'])[1]
-            self.assertEqual([e['value'] for e in a], ['help','greetings','other'])
-            self.assertEqual([e['value'] for e in b], ['one','two','three'])
+            self.assertEqual([e['value'] for e in a], ['sticky start','help','greetings','other','sticky stop'])
+            self.assertEqual([e['value'] for e in b], ['sticky start','one','two','three','sticky stop'])
             self.assertEqual({tuple(str(v) for v in e['logical_before']) for e in a},
                              {tuple(str(v) for v in e['logical_before']) for e in b})
             self.assertEqual(len({obj['id'] for obj in dm.get_objects_at_coordinate(
-                '0 0 0 0 0 0', 'logical_command')}), 6)
+                '0 0 0 0 0 0', 'logical_command')}), 10)
 
     def test_note_before_pole_open_pause_manual_turn_sync(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -160,10 +160,10 @@ class LogicalStickyNoteTests(unittest.TestCase):
             reader = StickyNoteEngine(data_manager=DataManager(base_dir=Path(folder)/'data'))
             _, path = reader.load_path(note['id'])
             ops = [e['navigation']['op'] for e in path]
-            self.assertEqual(ops, ['open','auto_forward','auto_forward','pause','none','none','away','turn','toward','sync','none'])
-            self.assertEqual(path[1]['logical_after'][0], '1 0 0 0 0 0')
-            self.assertEqual(path[6]['logical_after'][0], '27 0 0 0 0 0')
-            self.assertEqual(path[9]['logical_after'][0], '4 0 0 0 0 0')
+            self.assertEqual(ops, ['none','open','auto_forward','auto_forward','pause','none','none','away','turn','toward','sync','none','none'])
+            self.assertEqual(path[2]['logical_after'][0], '1 0 0 0 0 0')
+            self.assertEqual(path[7]['logical_after'][0], '27 0 0 0 0 0')
+            self.assertEqual(path[10]['logical_after'][0], '4 0 0 0 0 0')
             self.assertEqual(path[-1]['logical_after'][0], '5 0 0 0 0 0')
 
     def test_note_started_mid_nested_excursion_rehydrates_both_poles(self):
@@ -184,7 +184,7 @@ class LogicalStickyNoteTests(unittest.TestCase):
             reader = StickyNoteEngine(data_manager=DataManager(base_dir=Path(folder)/'data'))
             _, events = reader.load_path(note['id'])
             self.assertEqual([int(e['logical_after'][0].split()[0]) for e in events],
-                             [7,8,27,4])
+                             [8,7,8,27,4,4])
             self.assertEqual(len(dm.list_objects('pole_function')),2)
 
     def test_rollover_storage_uses_separate_counter_and_path_universe(self):
@@ -196,11 +196,11 @@ class LogicalStickyNoteTests(unittest.TestCase):
             command(term,'navigator turn')
             note = saved(term,'rollover')
             _, events = StickyNoteEngine(data_manager=DataManager(base_dir=Path(folder)/'data')).load_path(note['id'])
-            self.assertEqual(events[0]['logical_after'][0], '0 0 0 0 0 0')
-            self.assertEqual(events[0]['logical_counter_universe_after'],1)
-            self.assertEqual(events[1]['logical_after'][0], '59 59 59 59 59 59')
-            self.assertEqual(events[1]['logical_counter_universe_after'],0)
-            self.assertNotEqual(events[0]['logical_before'][3],events[0]['logical_after'][3])
+            self.assertEqual(events[1]['logical_after'][0], '0 0 0 0 0 0')
+            self.assertEqual(events[1]['logical_counter_universe_after'],1)
+            self.assertEqual(events[2]['logical_after'][0], '59 59 59 59 59 59')
+            self.assertEqual(events[2]['logical_counter_universe_after'],0)
+            self.assertNotEqual(events[1]['logical_before'][3],events[1]['logical_after'][3])
             objects=dm.get_objects_at_coordinate('0 0 0 0 0 0','logical_command')
             self.assertEqual(objects[0]['counter_universe'],1)
 
@@ -224,12 +224,12 @@ class LogicalStickyNoteTests(unittest.TestCase):
             })
             note=saved(term,'failed_meta')
             _, path=StickyNoteEngine(data_manager=dm).load_path(note['id'])
-            self.assertEqual([e['value'] for e in path],['oais','unknown_command'])
-            self.assertEqual(path[0]['type'],'transition')
-            self.assertEqual((path[0]['from'],path[0]['to']),('base','oais'))
-            self.assertFalse(path[1]['success'])
-            self.assertEqual(path[1]['logical_after'][0],'1 0 0 0 0 0')
-            self.assertEqual(path[1]['navigation']['op'],'auto_forward')
+            self.assertEqual([e['value'] for e in path],['sticky start','oais','unknown_command','sticky stop'])
+            self.assertEqual(path[1]['type'],'transition')
+            self.assertEqual((path[1]['from'],path[1]['to']),('base','oais'))
+            self.assertFalse(path[2]['success'])
+            self.assertEqual(path[2]['logical_after'][0],'1 0 0 0 0 0')
+            self.assertEqual(path[2]['navigation']['op'],'auto_forward')
 
     def test_corrupt_event_fails_not_guess_and_no_command_execution(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -260,7 +260,7 @@ class LogicalStickyNoteTests(unittest.TestCase):
             with self.assertRaises(OSError):
                 term.sticky_note.save_reference('broken')
             self.assertEqual(dm.get_objects_at_coordinate('0 0 0 0 0 0','logical_command'),[])
-            self.assertEqual(len(term.sticky_note.get_path()),1)
+            self.assertEqual(len(term.sticky_note.get_path()),2)
             self.assertTrue(term.sticky_note.active)
 
 

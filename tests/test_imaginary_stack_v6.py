@@ -96,15 +96,15 @@ class ImaginaryStackV6Tests(unittest.TestCase):
                 {"f":"k**3","direction":-1},
             ])
             self.assertNotIn("origin",note)
-            self.assertEqual(note["blocks"],2)
-            self.assertEqual([step["op"] for step in note["plan"]], ["auto_forward", "turn"])
+            self.assertEqual(note["blocks"],4)
+            self.assertEqual([step["op"] for step in note["plan"]], ["none", "auto_forward", "turn", "none"])
             b=dm.get_coordinate_node("11 0 0 0 0 0")["command_blocks"]
-            self.assertEqual(len(b),1)
+            self.assertEqual(len(b),3)
             self.assertEqual(b[0]["function"],0)
             self.assertNotIn("name",str(note))
             self.assertEqual(set(note),{"id","title","start","end","start_state","functions","blocks","plan"})
             _, events = t.sticky_note.load_path(note["id"])
-            self.assertEqual([e['value'] for e in events], ['one', 'navigator turn'])
+            self.assertEqual([e['value'] for e in events], ['sticky start', 'one', 'navigator turn', 'sticky stop'])
 
     def test_note_begins_midway_into_nested_stack(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -125,7 +125,7 @@ class ImaginaryStackV6Tests(unittest.TestCase):
                 {"f":"k**2", "k":2,"direction":1}])
             # A BASE ordinary command is +1 even after a manual turn.
             self.assertEqual(note["end"],"34 0 0 0 0 0")
-            self.assertEqual(note["functions"][0],{"f":"k**2","direction":-1})
+            self.assertEqual(note["functions"][1],{"f":"k**2","direction":-1})
 
     def test_push_during_recording_creates_new_pole_transition(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -142,7 +142,7 @@ class ImaginaryStackV6Tests(unittest.TestCase):
             self.assertEqual([a["f"] for a in note["functions"]], ["k","k**3","k**2"])
             self.assertEqual([(index, step["op"]) for index,step in
                               enumerate(note["plan"]) if step["op"] in ("open","push")],
-                             [(1,"open"),(3,"push")])
+                             [(2,"open"),(4,"push")])
             self.assertEqual(t.navigator_engine.compact_state()["functions"],[
                 {"f":"k**3","k":1,"direction":1},
                 {"f":"k**2","k":1,"direction":1},
@@ -200,7 +200,7 @@ class PortableHistoryAndSafetyTests(unittest.TestCase):
                 t.sticky_note.save_reference("fail")
             node=dm.get_coordinate_node("0 0 0 0 0 0") or {}
             self.assertEqual(node.get("command_blocks",[]),[])
-            self.assertEqual(len(t.sticky_note.get_path()),1)
+            self.assertEqual(len(t.sticky_note.get_path()),2)
 
     def test_compact_note_stores_rollover_as_separate_counter_universe(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -243,6 +243,8 @@ class PortableHistoryAndSafetyTests(unittest.TestCase):
             self.assertEqual(note["functions"],[{"f":"0","direction":1}])
             self.assertEqual(note["end"],"3 0 0 0 0 0")
             blocks=dm.get_coordinate_node("3 0 0 0 0 0")["command_blocks"]
-            self.assertEqual(len(blocks),3)
-            self.assertEqual(len({b["universe"] for b in blocks}),3)
-            self.assertTrue(all("step" not in b for b in blocks))
+            self.assertEqual(len(blocks),5)
+            self.assertEqual(len({b["universe"] for b in blocks}),5)
+            self.assertTrue(all("step" not in b for b in blocks[1:-1])
+            )
+            self.assertEqual([blocks[0]['step'], blocks[-1]['step']], [0, 0])
