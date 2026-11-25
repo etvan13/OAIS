@@ -209,7 +209,7 @@ Stored blocks:     A    B    C    D    E
 Original path:    A -> B -> C -> D -> E
 Alternative path: A -> C -> E
 Research path:    D -> B -> D -> C
-```text
+```
 
 These are different ordered paths through shared information, not necessarily separate copies of the information. Repeated visits remain meaningful. The original conversation order should remain recoverable even when new paths are created.
 
@@ -229,7 +229,7 @@ oais replay load example_path
 oais replay next 3
 oais replay all
 oais replay reset
-```text
+```
 
 `oais replay` opens the interactive note browser. Inside its `Replay>` prompt, omit both prefixes:
 
@@ -242,7 +242,7 @@ all
 reset
 trace example_path
 exit
-```text
+```
 
 A title or note number displays that note's complete saved command sequence. `sticky read <title>` can also inspect modern plans, and `replay data <six digits>` reads coordinate-associated messages.
 
@@ -268,7 +268,7 @@ A minimal counterless observation can look like:
 
 ```
 {"type": "command", "source": "myprogram", "value": "help", "success": True}
-```text
+```
 
 OAIS generates a source position from observed commands when native coordinates are absent. With `k**2` active, three observed commands from a fresh zero position advance the synthetic source to 3 and the Virtual Counter to 9. Connections may optionally supply signed `movement` or native coordinates.
 
@@ -276,7 +276,7 @@ To try this:
 
 ```
 python3 main.py --connection counterless
-```text
+```
 
 ```
 oais sticky start
@@ -287,13 +287,13 @@ echo testing
 oais navigator status
 oais sticky save counterless_test
 oais replay trace counterless_test
-```text
+```
 
 To add a connection, create a class in `meta/Connections/`, implement its `run()` method and the relevant host/event/prompt methods using an existing connection as a template, and register it in `MetaTerminal.__init__`:
 
 ```
 self.register("myprogram", "meta.Connections.MyProgram:MyProgramConnection")
-```text
+```
 
 Then select it using `python3 main.py --connection myprogram`. Connections are loaded only when selected. Observed-host connections currently use `self.meta.run_connected(self)` and supply a recognizable completion boundary. Meta forwards completed command events and waits for OAIS acknowledgement before displaying the next host prompt.
 
@@ -329,7 +329,7 @@ oais/
 tests/
 README_legacy_shtuff/          # Historical documentation
 README.md
-```text
+```
 
 The command interfaces and their corresponding engines are separated into files within each command directory. `Oais_Terminal.py` manages command dispatch and observation; `NavigatorEngine.py`, `StickyNoteEngine.py`, and `ReplayEngine.py` contain the respective core behavior.
 
@@ -347,7 +347,7 @@ Older v4 read-only paths and compact notes without modern private plans have sep
 
 ```
 python3 -m unittest discover -s tests -q
-```text
+```
 
 The v14 distribution passed 114 tests before local cleanup or modifications. PTY integration tests require `pexpect` and POSIX support and are skipped where those prerequisites are unavailable. Manual testing should verify connection switching, independent Counters, nested navigation, root-boundary behavior, Sticky Note persistence, same-coordinate events, read-only Replay, and counterless observation. Terminal scrolling and command-history handling remain areas for improvement.
 
