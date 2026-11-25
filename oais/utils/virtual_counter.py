@@ -1,6 +1,9 @@
 """OAIS virtual coordinate projection, independent of the two linear Counters.
 
 Four-part logical address: [real, imaginary, function, path_universe].
+The imaginary stack contains one integer progression count (k) per active
+Navigator function; legacy snapshots label this count 'step'/'k'. Navigator
+owns the expressions and pole stack, never the host Counter.
 Counter.universes (base-60 overflow) is separately represented by `.universe`.
 The path-universe transition is a pure helper here; Navigator decides when to apply it.
 """

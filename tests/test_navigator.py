@@ -205,16 +205,15 @@ class NavigatorTerminalTests(unittest.TestCase):
             counter=Counter(load_state=False, save_path=Path(tmp)/'standalone.json'),
             data_manager=DataManager(base_dir=Path(tmp)/'data'))
 
-    def test_pole_function_stored_once_no_sticky_commands_automatically(self):
+    def test_function_stays_in_virtual_state_without_coordinate_pole_objects(self):
         with tempfile.TemporaryDirectory() as tmp:
             o = self.new_terminal(tmp)
             o.attach_host('3 0 0 0 0 0')
             reply = o.navigator_command('open cubic')
             self.assertIn('Opened pole', reply)
             pole = o.data_manager.get_objects_at_coordinate('3 0 0 0 0 0','pole_function')
-            self.assertEqual(len(pole), 1)
-            self.assertIn('entry_seed', pole[0])
-            self.assertEqual(pole[0]['definition']['name'], 'cubic_offset')
+            self.assertEqual(pole, [])
+            self.assertEqual(o.navigator_engine.compact_state()['functions'][0]['f'], 'k**3')
             # Ordinary host command advances once, host before/after are real
             o.observe_event({'type':'command', 'source':'base','value':'help',
                 'coordinate_before':'3 0 0 0 0 0', 'coordinate_after':'4 0 0 0 0 0',
@@ -225,11 +224,11 @@ class NavigatorTerminalTests(unittest.TestCase):
                 'universe_after':0})
             self.assertEqual(o.virtual_counter.coordinate, '11 0 0 0 0 0')
             self.assertEqual(o.host_counter.get_counters(), '5 0 0 0 0 0')
-            self.assertEqual(len(o.data_manager.get_objects_at_coordinate('3 0 0 0 0 0','pole_function')),1)
+            self.assertEqual(o.data_manager.get_objects_at_coordinate('3 0 0 0 0 0','pole_function'), [])
             self.assertEqual(o.data_manager.get_objects_at_coordinate('11 0 0 0 0 0','pole_function'), [])
             self.assertEqual(o.data_manager.get_objects_at_coordinate('11 0 0 0 0 0','logical_command'), [])
 
-    def test_checkpoint_restore_from_pole_only_not_duplicate_formula(self):
+    def test_checkpoint_restore_from_self_contained_terminal_data(self):
         with tempfile.TemporaryDirectory() as tmp:
             o = self.new_terminal(tmp)
             o.attach_host('3 0 0 0 0 0')
@@ -240,14 +239,15 @@ class NavigatorTerminalTests(unittest.TestCase):
             o.navigator_command('child cubic scale=2')
             o.navigator_command('away')
             checkpoint = Navigator(o).checkpoint()
-            self.assertNotIn('definition', str(checkpoint))
+            self.assertIn('definition', str(checkpoint))
+            self.assertEqual(o.data_manager.list_objects('pole_function'), [])
             original_address = o.virtual_counter.logical_address()
             restart = self.new_terminal(tmp)
             restart.attach_host('8 0 0 0 0 0')  # different host, still independent
             restored = Navigator(restart).restore()
             self.assertEqual(restart.virtual_counter.logical_address(), original_address)
             self.assertEqual(restored['layers'][1]['definition']['name'],'cubic_offset')
-            for op in ('turn','toward','toward'):
+            for op in ('turn','toward'):
                 getattr(o.navigator_engine, op)()
                 getattr(restart.navigator_engine, op)()
                 self.assertEqual(restart.virtual_counter.logical_address(),

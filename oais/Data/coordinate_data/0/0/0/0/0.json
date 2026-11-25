@@ -1,291 +1,135 @@
 {
     "0 0 0 0 0 0": {
-        "objects": {
-            "pole_function": [
-                {
-                    "schema_version": 3,
-                    "counter_universe": 0,
-                    "definition": {
-                        "name": "cubic_offset",
-                        "version": 1,
-                        "params": {
-                            "scale": 1
-                        }
-                    },
-                    "entry_seed": "cf86946f98cf43e5a8a68fa611b47cf1",
-                    "id": "pi_3711c254d87047c6",
-                    "type": "pole_function",
-                    "coordinate": "0 0 0 0 0 0"
-                }
-            ],
-            "logical_command": [
-                {
-                    "schema_version": 4,
-                    "command": "help",
-                    "address": [
-                        "0 0 0 0 0 0",
-                        [
-                            {
-                                "activation": "pi_3711c254d87047c6",
-                                "step": 0,
-                                "leg": "away"
-                            }
-                        ],
-                        "pi_3711c254d87047c6",
-                        319309280030538821683557630628946890736
-                    ],
-                    "counter_universe": 0,
-                    "direction": "away",
-                    "source": "base",
-                    "navigation": {
-                        "op": "auto"
-                    },
-                    "success": true,
-                    "event_type": "command",
-                    "host_after": "1 0 0 0 0 0",
-                    "host_universe_after": 0,
-                    "follow_update": true,
-                    "id": "se_3f7e283a32d829cb9bdd52aaa9831b57",
-                    "type": "logical_command",
-                    "coordinate": "0 0 0 0 0 0"
-                }
-            ],
-            "sticky_note": [
-                {
-                    "schema_version": 4,
-                    "storage": "logical",
-                    "title": "cubic_example",
-                    "start": [
-                        "0 0 0 0 0 0",
-                        [
-                            {
-                                "activation": "pi_3711c254d87047c6",
-                                "step": 0,
-                                "leg": "away"
-                            }
-                        ],
-                        "pi_3711c254d87047c6",
-                        319309280030538821683557630628946890736
-                    ],
-                    "start_counter_universe": 0,
-                    "start_direction": "away",
-                    "initial_state": {
-                        "version": 1,
-                        "virtual": {
-                            "coordinate": "0 0 0 0 0 0",
-                            "universe": 0,
-                            "counter_universe": 0,
-                            "path_universe": 319309280030538821683557630628946890736,
-                            "imaginary": [
-                                {
-                                    "activation": "pi_3711c254d87047c6",
-                                    "step": 0,
-                                    "leg": "away"
-                                }
-                            ],
-                            "function": "pi_3711c254d87047c6",
-                            "direction": "away",
-                            "mode": "free",
-                            "host": {
-                                "coordinate": "0 0 0 0 0 0",
-                                "counter_universe": 0
-                            }
-                        },
-                        "layers": [
-                            {
-                                "id": "pi_3711c254d87047c6",
-                                "pole_index": 0,
-                                "pole_real": "0 0 0 0 0 0",
-                                "pole_counter_universe": 0,
-                                "parent": null,
-                                "opened_at": null,
-                                "k": 0,
-                                "leg": "away"
-                            }
-                        ],
-                        "auto_enabled": true
-                    },
-                    "route_seed": "ca5d379130dc4664a210023c3f8f12dc",
-                    "event_count": 6,
-                    "after": [
-                        "0 0 0 0 0 0",
-                        [],
-                        "linear_offset",
-                        270000739105185199248462453810322402312
-                    ],
-                    "after_counter_universe": 0,
-                    "after_direction": "linear",
-                    "scope": "base",
-                    "id": "26c0fb3a5061",
-                    "type": "sticky_note",
-                    "coordinate": "0 0 0 0 0 0"
-                }
-            ]
-        }
+        "command_blocks": [
+            {
+                "command": "function k**2",
+                "universe": "29b245b727cbf7bd5c9be23430e12e05",
+                "function": 0,
+                "step": 0,
+                "source": "oais"
+            },
+            {
+                "command": "help",
+                "universe": "ec900b45c2b03d9886e360398ddf6dde"
+            },
+            {
+                "command": "backwards",
+                "universe": "59e13794ac45883b490826e1f3c20fe2",
+                "step": 0
+            },
+            {
+                "command": "function k**2",
+                "universe": "258a1d23abff2756e562056f5994b609",
+                "function": 0,
+                "step": 0,
+                "source": "oais"
+            },
+            {
+                "command": "function k**3",
+                "universe": "d15d296c25e15061995811757ef70549",
+                "function": 1,
+                "step": 0,
+                "source": "oais"
+            }
+        ]
     },
     "1 0 0 0 0 0": {
-        "objects": {
-            "logical_command": [
-                {
-                    "schema_version": 4,
-                    "command": "help",
-                    "address": [
-                        "1 0 0 0 0 0",
-                        [
-                            {
-                                "activation": "pi_3711c254d87047c6",
-                                "step": 1,
-                                "leg": "away"
-                            }
-                        ],
-                        "pi_3711c254d87047c6",
-                        221593826276538788235420185005629727233
-                    ],
-                    "counter_universe": 0,
-                    "direction": "away",
-                    "source": "base",
-                    "navigation": {
-                        "op": "auto"
-                    },
-                    "success": true,
-                    "event_type": "command",
-                    "host_after": "2 0 0 0 0 0",
-                    "host_universe_after": 0,
-                    "follow_update": true,
-                    "id": "se_2b8fa4278f614710139c40fb3f1f3bb2",
-                    "type": "logical_command",
-                    "coordinate": "1 0 0 0 0 0"
-                },
-                {
-                    "schema_version": 4,
-                    "command": "help",
-                    "address": [
-                        "1 0 0 0 0 0",
-                        [
-                            {
-                                "activation": "pi_3711c254d87047c6",
-                                "step": 1,
-                                "leg": "toward"
-                            }
-                        ],
-                        "pi_3711c254d87047c6",
-                        323525146482823672261372665468766602478
-                    ],
-                    "counter_universe": 0,
-                    "direction": "toward",
-                    "source": "base",
-                    "navigation": {
-                        "op": "auto"
-                    },
-                    "success": true,
-                    "event_type": "command",
-                    "host_after": "5 0 0 0 0 0",
-                    "host_universe_after": 0,
-                    "follow_update": true,
-                    "id": "se_108a3617d0593e895f132bad532e3ea4",
-                    "type": "logical_command",
-                    "coordinate": "1 0 0 0 0 0"
-                }
-            ]
-        }
+        "command_blocks": [
+            {
+                "command": "help",
+                "universe": "c59cb7440921fb057d4ac9a6d4b78013"
+            },
+            {
+                "command": "backwards",
+                "universe": "0cc809afc1b25bff997dfd1907bcd071"
+            },
+            {
+                "command": "sticky start",
+                "universe": "f0a58d02416551e348a1d43d352db23d",
+                "function": 0,
+                "step": 0,
+                "source": "oais"
+            },
+            {
+                "command": "sticky exit",
+                "universe": "9eba3d84a2483ba62c98443c8ff1936b",
+                "step": 0,
+                "source": "oais"
+            },
+            {
+                "command": "return",
+                "universe": "3a2009c5e5c3179789c4f746a26106cc",
+                "step": 0,
+                "source": "meta"
+            },
+            {
+                "command": "help",
+                "universe": "b4e0f16b2af36be017ed672b8ef37e66"
+            }
+        ]
     },
-    "8 0 0 0 0 0": {
-        "objects": {
-            "logical_command": [
-                {
-                    "schema_version": 4,
-                    "command": "help",
-                    "address": [
-                        "8 0 0 0 0 0",
-                        [
-                            {
-                                "activation": "pi_3711c254d87047c6",
-                                "step": 2,
-                                "leg": "away"
-                            }
-                        ],
-                        "pi_3711c254d87047c6",
-                        250258045281826840734480817361269523885
-                    ],
-                    "counter_universe": 0,
-                    "direction": "away",
-                    "source": "base",
-                    "navigation": {
-                        "op": "auto"
-                    },
-                    "success": true,
-                    "event_type": "command",
-                    "host_after": "3 0 0 0 0 0",
-                    "host_universe_after": 0,
-                    "follow_update": true,
-                    "id": "se_bcd24a3114f0f91a84fb6eea78e37a8e",
-                    "type": "logical_command",
-                    "coordinate": "8 0 0 0 0 0"
-                },
-                {
-                    "schema_version": 4,
-                    "command": "help",
-                    "address": [
-                        "8 0 0 0 0 0",
-                        [
-                            {
-                                "activation": "pi_3711c254d87047c6",
-                                "step": 2,
-                                "leg": "toward"
-                            }
-                        ],
-                        "pi_3711c254d87047c6",
-                        98130241690358260463641782122050794261
-                    ],
-                    "counter_universe": 0,
-                    "direction": "toward",
-                    "source": "base",
-                    "navigation": {
-                        "op": "auto"
-                    },
-                    "success": true,
-                    "event_type": "command",
-                    "host_after": "4 0 0 0 0 0",
-                    "host_universe_after": 0,
-                    "follow_update": true,
-                    "id": "se_d3c192f9f563111df9f55d8ad970a092",
-                    "type": "logical_command",
-                    "coordinate": "8 0 0 0 0 0"
-                }
-            ]
-        }
+    "2 0 0 0 0 0": {
+        "command_blocks": [
+            {
+                "command": "help",
+                "universe": "9cfbdbd776e81a4c41e8f3be272471da"
+            }
+        ]
     },
-    "27 0 0 0 0 0": {
-        "objects": {
-            "logical_command": [
-                {
-                    "schema_version": 4,
-                    "command": "navigator turn",
-                    "address": [
-                        "27 0 0 0 0 0",
-                        [
-                            {
-                                "activation": "pi_3711c254d87047c6",
-                                "step": 3,
-                                "leg": "away"
-                            }
-                        ],
-                        "pi_3711c254d87047c6",
-                        25725637759794690383379378626483566405
-                    ],
-                    "counter_universe": 0,
-                    "direction": "away",
-                    "source": "oais",
-                    "navigation": {
-                        "op": "turn"
-                    },
-                    "success": true,
-                    "event_type": "command",
-                    "id": "se_e77c2f7b562987d86da03066b7426843",
-                    "type": "logical_command",
-                    "coordinate": "27 0 0 0 0 0"
-                }
-            ]
-        }
+    "3 0 0 0 0 0": {
+        "command_blocks": [
+            {
+                "command": "virtual",
+                "universe": "076852cb12ad86852de7cf591f64a1fa",
+                "failed": true
+            }
+        ]
+    },
+    "4 0 0 0 0 0": {
+        "command_blocks": [
+            {
+                "command": "help",
+                "universe": "89646fb42384db93d4ec93a0e5e82262"
+            },
+            {
+                "command": "backwards",
+                "universe": "168487dfe0d1ae409511842a3677b91b",
+                "function": 3
+            },
+            {
+                "command": "sticky save test_4",
+                "universe": "e71b393980a75f4640d49c860e047410",
+                "step": 0,
+                "source": "oais"
+            }
+        ]
+    },
+    "9 0 0 0 0 0": {
+        "command_blocks": [
+            {
+                "command": "function k**3",
+                "universe": "3a9b3d89e416ff752e7177ba4f75504b",
+                "function": 1,
+                "step": 0,
+                "source": "oais"
+            },
+            {
+                "command": "help",
+                "universe": "597751c477a1193214bf279936d96434"
+            },
+            {
+                "command": "backwards",
+                "universe": "fbd60c74450cd0f4ff2cab20d76b8c9e"
+            }
+        ]
+    },
+    "10 0 0 0 0 0": {
+        "command_blocks": [
+            {
+                "command": "backwards",
+                "universe": "61e7c5c6cadf8e3ecd58775ccd6ea27c",
+                "function": 2
+            }
+        ]
     }
 }

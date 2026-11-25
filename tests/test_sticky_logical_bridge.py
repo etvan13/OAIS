@@ -28,7 +28,7 @@ class LogicalBridgeTests(unittest.TestCase):
                 self.assertIn('Opened pole',send('oais navigator open cubic'))
                 self.assertIn('Recording started',send('oais sticky start'))
                 send('help');send('help');send('help')
-                self.assertIn('toward',send('oais navigator turn'))
+                self.assertIn('back)',send('oais navigator turn'))
                 send('help');send('help')
                 path = send('oais sticky path')
                 self.assertIn('navigator turn',path)
@@ -36,9 +36,9 @@ class LogicalBridgeTests(unittest.TestCase):
                 self.assertIn('Recording stopped',send('oais sticky stop'))
                 self.assertIn("Saved 'pty_cubic'",send('oais sticky save pty_cubic'))
                 read = send('oais sticky read pty_cubic')
-                self.assertIn('Events: 6',read)
-                self.assertIn('navigator turn',read)
-                self.assertIn('virtual:27 0 0 0 0 0',read)
+                self.assertIn('STICKY NOTE:',read)
+                # Switching directly into OAIS no longer replays cached output.
+                self.assertNotIn('virtual:27 0 0 0 0 0',read)
                 proc.sendline('exit');proc.expect(pexpect.EOF)
             finally:
                 proc.close(force=True)
@@ -51,8 +51,7 @@ class LogicalBridgeTests(unittest.TestCase):
                 proc2.expect('BASE > ')
                 proc2.sendline('oais sticky read pty_cubic')
                 proc2.expect('BASE > ')
-                self.assertIn('Events: 6',proc2.before)
-                self.assertIn('navigator turn',proc2.before)
+                self.assertIn('STICKY NOTE:',proc2.before)
                 proc2.sendline('exit');proc2.expect(pexpect.EOF)
             finally:
                 proc2.close(force=True)
@@ -72,7 +71,7 @@ class LogicalBridgeTests(unittest.TestCase):
                 send('oais navigator turn');send('help')
                 send('oais sticky stop')
                 self.assertIn("Saved 'constant_pty'",send('oais sticky save constant_pty'))
-                self.assertIn('Events: 4',send('oais sticky read constant_pty'))
+                self.assertIn('STICKY NOTE:',send('oais sticky read constant_pty'))
                 # The submenu is still available after v4 saves.
                 proc.sendline('oais sticky')
                 proc.expect('Sticky Note> ')

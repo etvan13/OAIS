@@ -1,17 +1,20 @@
-"""OAIS Navigator command, separate from its pure mathematical engine.
+"""Interactive OAIS Navigator command, independent of the physical/host Counter.
 
-The adapter alone knows DataManager and the terminal. The function definition
-exists only at its activation pole. Commands elsewhere are not written here;
-that remains the upcoming Sticky Note integration.
+No-argument ``navigator`` enters a subterminal. One-line commands remain valid:
+``navigator open cubic`` or ``oais navigator function '2*k**2 + 1'``.
 """
 import json
-import os
+import shlex
 from pathlib import Path
 
 try:
-    from .NavigatorEngine import FUNCTION_PARAMETERS
+    from .NavigatorEngine import (
+        FUNCTION_PARAMETERS, expression_for_definition, function_definition,
+    )
 except ImportError:
-    from NavigatorEngine import FUNCTION_PARAMETERS
+    from NavigatorEngine import (
+        FUNCTION_PARAMETERS, expression_for_definition, function_definition,
+    )
 
 
 FUNCTION_ALIASES = {
@@ -24,7 +27,7 @@ FUNCTION_ALIASES = {
 
 
 class Navigator:
-    """Small one-command-at-a-time UI. Never advances the DEEP Counter."""
+    """Command UI for the independent, nested mathematical navigator."""
 
     def __init__(self, terminal):
         self.terminal = terminal
@@ -35,14 +38,21 @@ class Navigator:
     @staticmethod
     def _parse_function(tokens):
         if not tokens:
-            raise ValueError("Specify a function (linear, backward, cubic, constant, wave).")
-        raw = tokens[0].lower()
-        name, defaults = FUNCTION_ALIASES.get(raw, (raw, {}))
+            raise ValueError("Choose a preset or enter a function of k; e.g. 'cubic' or 'k**3'.")
+        raw = tokens[0]
+        preset = FUNCTION_ALIASES.get(raw.lower())
+        if preset is None and raw in FUNCTION_PARAMETERS:
+            preset = (raw, {})
+        if preset is None:
+            # Whitespace is legitimate within custom expressions. Legacy i input
+            # is normalized by the expression validator to canonical k.
+            return " ".join(tokens), {}
+        name, defaults = preset
         params = dict(defaults)
         for token in tokens[1:]:
             key, sep, value = token.partition("=")
             if not sep or not key or not value:
-                raise ValueError("Parameters use key=integer (example: scale=2).")
+                raise ValueError("Preset parameters use key=integer, e.g. cubic scale=2.")
             try:
                 params[key.lower()] = int(value)
             except ValueError as exc:
@@ -50,65 +60,122 @@ class Navigator:
         return name, params
 
     @staticmethod
-    def _brief(s):
-        v = s["virtual"]
-        layers = s["layers"]
-        path = " > ".join(f"{f['id']} (k={f['k']}, {f['leg']})" for f in layers)
-        return (f"Navigator [{'AUTO' if s['auto_enabled'] else 'PAUSED'}]: "
-                f"{v['coordinate']} (counter_universe {v['counter_universe']}, "
-                f"path_universe {v['path_universe']})\n"
-                f"function={v['function']}, imaginary={v['imaginary']}, "
-                f"direction={v['direction']}\n"
-                f"layers: {path or '(none)'}")
+    def _brief(snapshot):
+        """Print portable function state, not runtime pi_ IDs/history hashes."""
+        virtual = snapshot["virtual"]
+        layers = snapshot["layers"]
+        path = " > ".join(
+            f"{expression_for_definition(layer['definition'])} "
+            f"(k={layer['k']}, {'out' if layer['leg'] == 'away' else 'back'})"
+            for layer in layers
+        )
+        return (f"Navigator [{'AUTO' if snapshot['auto_enabled'] else 'PAUSED'}]: "
+                f"{virtual['coordinate']} (U={virtual['counter_universe']})\n"
+                f"layers: {path or '(none — linear source)'}")
 
-    def run(self, arguments=""):
-        tokens = arguments.strip().split()
+    @staticmethod
+    def help_text():
+        return ("Navigator: choose a function to project BASE ticks.\n"
+                "  functions          List presets\n"
+                "  function <f(k)>    Select a preset or custom expression\n"
+                "  exit               Return to OAIS\n"
+                "Examples: function cubic, function k**3\n"
+                "Use BASE 'backwards' to reduce k and 'forwards' to increase k.")
+
+    @staticmethod
+    def presets_text():
+        return (
+            "PRESET FUNCTIONS — g(k)-g(0) (integer projection)\n"
+            "  linear [slope=1]       k\n"
+            "  backward               -k\n"
+            "  cubic [scale=1]        k**3\n"
+            "  constant               0 (k advances; real stays fixed)\n"
+            "  wave [amplitude=1]     2-abs((k+2)%8-4)\n"
+            "\nCUSTOM FUNCTIONS\n"
+            "  function k**2\n"
+            "  function narrative_v1(pole,imaginary,X,k)  (integer seeds)\n"
+            "  function 2*k**3 + 5\n"
+            "  open (k+1)**2\n"
+            "Safe integer operations: +, -, *, **, //, %, abs(), wave().\n"
+            "No Python code, floats, imports, or other variable names."
+        )
+
+    def run(self, arguments="", *, input_func=input, print_func=print):
+        """No arguments opens a nested command menu; args execute one action."""
+        if arguments.strip():
+            return self.process_command(arguments)
+        print_func("\nNAVIGATOR — FUNCTION SELECTOR")
+        print_func("Type 'functions', 'function k**3', or 'exit'.")
+        while True:
+            try:
+                command = input_func("Navigator> ").strip()
+            except (EOFError, KeyboardInterrupt):
+                print_func("")
+                break
+            if not command:
+                continue
+            before_state = self.terminal.begin_nested_input(command)
+            if command.lower() in ("exit", "back"):
+                self.terminal.end_nested_input("navigator " + command, before_state)
+                break
+            success = True
+            try:
+                message = self.process_command(command)
+            except (ValueError, TypeError, OSError) as exc:
+                message = f"Navigator error: {exc}"
+                success = False
+            self.terminal.end_nested_input(
+                "navigator " + command, before_state, success=success,
+            )
+            if message:
+                print_func(message)
+        return "Returning to OAIS terminal."
+
+    def _open(self, name, params):
+        # Validate *before* resetting the origin or modifying the stack.
+        function_definition(name, params)
+        if not self.engine.active:
+            coordinate, universe = self.terminal.navigation_origin()
+            self.engine.reset_to_linear(coordinate, universe)
+        result = self.engine.push_function(name, params)
+        self.terminal._explicit_hold = False
+        return "Opened pole.\n" + self._brief(result)
+
+    def process_command(self, arguments):
+        try:
+            tokens = shlex.split(arguments.strip())
+        except ValueError as exc:
+            raise ValueError("Unmatched quotes in Navigator command.") from exc
         action = tokens[0].lower() if tokens else "status"
         args = tokens[1:]
         if action in ("help", "?"):
-            return (
-                "Navigator commands:\n"
-                "  functions                    List built-in functions\n"
-                "  open <function> [key=value]  Open pole at virtual coordinate (k=0)\n"
-                "  away                         One outward step\n"
-                "  turn [function]              First return step, or child on a return\n"
-                "  toward                       Continue returning one step\n"
-                "  child <function> [key=value] Open nested pole on a return; step once\n"
-                "  pause / resume               Disable/enable automatic host-command stepping\n"
-                "  status                       Display virtual position and layers\n"
-                "  inspect                      Full four-part address (JSON)\n"
-                "  checkpoint / restore         Save/reload unfinished active state\n"
-                "  trace <note>                 Read full path from coordinate storage\n"
-                "  sync                         Abandon layers and follow host/standalone counter\n"
-                "Functions: linear, backward, cubic, constant, wave.\n"
-                "When active, ordinary BASE commands each consume ONE functional step.\n"
-                "Navigator controls, virtual controls, and META switches do not."
-            )
+            return self.help_text()
+        if action in ("functions", "presets"):
+            return self.presets_text()
         if action == "trace":
             if not args:
-                return "Usage: navigator trace <Sticky Note title or ID>"
+                return "Usage: trace <Sticky Note title or ID>"
             try:
                 return self.terminal.replay_engine.trace(" ".join(args))
             except KeyError:
                 return "Saved Sticky Note not found: " + " ".join(args)
-        if action == "functions":
-            return ("Built-in position offsets f(k), f(0)=0:\n"
-                    "  linear [slope=1]: slope*k\n"
-                    "  backward: -k\n"
-                    "  cubic [scale=1]: scale*k^3\n"
-                    "  constant: 0 (imaginary-only progression)\n"
-                    "  wave [amplitude=1]: amplitude*(0,1,2,1,0,-1,-2,-1)[k mod 8]\n"
-                    "Full registry keys: " + ", ".join(FUNCTION_PARAMETERS))
         if action == "status":
             return self._brief(self.engine.snapshot())
+        if action == "stack":
+            return json.dumps(self.engine.compact_state(), indent=2)
         if action == "inspect":
             v = self.engine.virtual
             return json.dumps({"address": v.logical_address(),
                                "counter_universe": v.snapshot()["counter_universe"],
                                "direction": v.snapshot()["direction"]}, indent=2)
-        if action == "open":
+        if action in ("open", "set", "function", "custom"):
             name, params = self._parse_function(args)
-            return "Opened pole.\n" + self._brief(self.engine.open_pole(name, params))
+            return self._open(name, params)
+        if action == "child":
+            name, params = self._parse_function(args)
+            result = self.engine.push_function(name, params)
+            self.terminal._explicit_hold = False
+            return "Opened nested pole.\n" + self._brief(result)
         if action == "away":
             return self._brief(self.engine.away())
         if action == "turn":
@@ -118,36 +185,31 @@ class Navigator:
             return self._brief(self.engine.turn())
         if action == "toward":
             return self._brief(self.engine.toward())
-        if action == "child":
-            name, params = self._parse_function(args)
-            return self._brief(self.engine.open_child(name, params))
         if action == "pause":
             return self._brief(self.engine.pause())
         if action == "resume":
-            return self._brief(self.engine.resume())
+            result = self.engine.resume()
+            self.terminal._explicit_hold = False
+            return self._brief(result)
         if action == "sync":
-            return self._brief_after_sync()
+            coordinate, universe = self.terminal.navigation_origin()
+            self.engine.reset_to_linear(coordinate, universe)
+            self.terminal._explicit_hold = False
+            return "Navigator cleared and synchronized.\n" + self._brief(self.engine.snapshot())
         if action == "checkpoint":
             self.checkpoint()
             return f"Navigator checkpoint saved at {self.checkpoint_path}"
         if action == "restore":
+            if self.terminal.sticky_note.active or self.terminal.sticky_note.get_path():
+                raise ValueError("Save or clear the temporary Sticky Note before restoring.")
             return "Restored navigator checkpoint.\n" + self._brief(self.restore())
-        return "Unknown Navigator command. Type 'navigator help'."
-
-    def _brief_after_sync(self):
-        counter = self.terminal.counter
-        self.engine.reset_to_linear(counter.get_counters(), counter.universes)
-        return "Navigator cleared and synchronized.\n" + self._brief(self.engine.snapshot())
+        if action in ("exit", "back"):
+            return "Returning to OAIS terminal."
+        return "Unknown Navigator command. Type 'help' for function selection."
 
     def checkpoint(self):
-        """Save only pole references and active state: no duplicated formulas."""
-        snapshot = self.engine.snapshot()
-        state = dict(snapshot)
-        state["layers"] = [
-            {k: v for k, v in frame.items() if k != "definition"}
-            for frame in snapshot["layers"]
-        ]
-        state.pop("entry_seed", None)  # available only at the root pole
+        """Save a self-contained terminal-local snapshot; no coordinate poles."""
+        state = self.engine.snapshot()
         self.checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
         self.manager._write_json(self.checkpoint_path, state, sort_coordinates=False)
         return state
@@ -159,6 +221,10 @@ class Navigator:
         frames = data.get("layers")
         if not isinstance(frames, list):
             raise ValueError("Invalid Navigator checkpoint layers.")
+        if all(isinstance(frame, dict) and "definition" in frame for frame in frames):
+            # v12 checkpoint carries each definition; no coordinate reads.
+            return self.engine.restore(data)
+        # Backward read support for existing pole-based navigator checkpoints.
         full = dict(data)
         full["layers"] = []
         for frame in frames:
@@ -175,6 +241,4 @@ class Navigator:
             full["entry_seed"] = root.get("entry_seed")
         else:
             full["entry_seed"] = None
-        # The engine validates the full state against its projection before
-        # replacing the live virtual coordinate. Never execute saved commands.
         return self.engine.restore(full)

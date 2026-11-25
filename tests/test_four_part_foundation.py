@@ -137,7 +137,7 @@ class FourPartFoundationTests(unittest.TestCase):
                 'universe_after':0})
             self.assertEqual(oais.virtual_counter.logical_address()[0], '3 0 0 0 0 0')
             oais.virtual_counter.set_projection('5 0 0 0 0 0', path_universe=123)
-            self.assertIn('path_universe 123', oais.virtual_command('status'))
+            self.assertIn('layers: linear', oais.virtual_command('status'))
             oais.virtual_command('sync')
             self.assertEqual(oais.virtual_counter.logical_address()[-1], 0)
             self.assertEqual(oais.virtual_counter.logical_address()[0], '4 0 0 0 0 0')
@@ -159,7 +159,7 @@ class FourPartFoundationTests(unittest.TestCase):
                     'coordinate_after':f'{nxt} 0 0 0 0 0'})
             note = rec.save_reference('legacy')
             read = StickyNoteEngine(counter=counter, data_manager=DataManager(base_dir=Path(tmp)))
-            _, path = read.load_path(note['id'])
+            _, path = read.load_path(note['id'], include_legacy=True)
             self.assertEqual([e['value'] for e in path], [c[1] for c in commands])
             self.assertEqual(len(dm.get_coordinate_node('4 0 0 0 0 0')['commands']), 2)
 

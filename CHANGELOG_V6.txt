@@ -1,0 +1,9 @@
+Imaginary Function Stack + Portable Sticky Note v6
+Source of truth: the eight Python files uploaded on November 24, 2026.
+- Navigator: safe text math expressions with i, nested poles, compact_state, independent returns.
+- Sticky Note: math f instead of function registry name, offset i and compact origin,
+  portable path history keys without random pole IDs, sparse transitions.
+- Connected terminal: base namespace. Existing DataManager unchanged.
+- Replay explicitly deferred. Legacy v4 readback preserved.
+- Tests: 67 passed (including tests updated for new child/linear-free semantics).
+Full notes: README_IMAGINARY_STACK_V6.md

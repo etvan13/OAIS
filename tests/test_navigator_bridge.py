@@ -44,12 +44,12 @@ class NavigatorBridgeTests(unittest.TestCase):
                 send('oais navigator turn')
                 self.assertEqual(virtual(), ('FREE', '11 0 0 0 0 0'))
                 send('help')
-                self.assertEqual(virtual(), ('FREE', '4 0 0 0 0 0'))
+                self.assertEqual(virtual(), ('FREE', '30 0 0 0 0 0'))
                 send('help')
-                self.assertEqual(virtual(), ('FREE', '3 0 0 0 0 0'))
-                # Base moved from 3 to 8; virtual completed excursion at 3.
+                self.assertEqual(virtual(), ('FREE', '7 1 0 0 0 0'))
+                # BASE always adds +1 for ordinary commands, regardless of turn.
                 self.assertIn('[8 0 0 0 0 0] BASE >', send('oais navigator status') + '[8 0 0 0 0 0] BASE >')
-                self.assertEqual(virtual(), ('FREE', '3 0 0 0 0 0'))
+                self.assertEqual(virtual(), ('FREE', '7 1 0 0 0 0'))
                 self.assertEqual(send('oais virtual sync').count('Virtual [FOLLOW]') >= 1, True)
                 self.assertEqual(virtual(), ('FOLLOW', '8 0 0 0 0 0'))
                 proc.sendline('exit')

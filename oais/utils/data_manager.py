@@ -68,6 +68,47 @@ class DataManager:
         self.coordinate_dir.mkdir(parents=True, exist_ok=True)
         # No automatic show_list.json: coordinate_data is the storage index.
 
+    # --- Terminal-scoped, coordinate-independent JSON collections ---
+    @staticmethod
+    def _safe_storage_name(value, label):
+        import re
+        if (not isinstance(value, str) or
+                not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", value)):
+            raise ValueError(f"{label} must contain only letters, digits, _ or - (max 64).")
+        return value
+
+    def terminal_data_location(self, terminal_id, collection, *, create=False):
+        """Path for a terminal-owned collection; never inside coordinate_data."""
+        terminal_id = self._safe_storage_name(terminal_id, "Terminal ID")
+        collection = self._safe_storage_name(collection, "Collection")
+        if collection == "sticky_notes":
+            collection = "sticky_notes_commands"
+        directory = self.base_dir / 'terminal_data' / terminal_id
+        if create:
+            directory.mkdir(parents=True, exist_ok=True)
+        return directory / f'{collection}.json'
+
+    def load_terminal_data(self, terminal_id, collection):
+        """Return a detached collection dictionary, or {} when absent."""
+        path = self.terminal_data_location(terminal_id, collection)
+        if path.name == "sticky_notes_commands.json" and not path.exists():
+            legacy = path.with_name("sticky_notes.json")
+            if legacy.is_file():
+                # Preserve existing command notes; never overwrite a new collection.
+                self._load_block_file(legacy)
+                legacy.rename(path)
+        data = self._load_block_file(path)
+        return deepcopy(data)
+
+    def save_terminal_data(self, terminal_id, collection, data):
+        """Replace one terminal collection with an atomic JSON write."""
+        if not isinstance(data, dict):
+            raise ValueError("Terminal collection must be a dictionary.")
+        json.dumps(data, allow_nan=False)
+        path = self.terminal_data_location(terminal_id, collection, create=True)
+        self._write_json(path, deepcopy(data), sort_coordinates=False)
+        return path
+
     # --- Coordinate validation ---
     @staticmethod
     def parse_coordinate(coordinate):
@@ -462,7 +503,7 @@ class DataManager:
                              navigation=None, host_after=None,
                              host_universe_after=None, follow_update=False,
                              success=True, event_type="command",
-                             meta_transition=None):
+                             meta_transition=None, function_index=None):
         """Save a v3 command at its virtual *real* coordinate.
 
         No recording ID, next-event pointer, path order, or functional rule is
@@ -511,6 +552,9 @@ class DataManager:
                     or set(meta_transition) != {"from", "to"}
                     or not all(isinstance(x, str) for x in meta_transition.values())):
                 raise ValueError("Invalid Meta Terminal transition.")
+        if function_index is not None and (isinstance(function_index, bool)
+                or not isinstance(function_index, int) or function_index < 0):
+            raise ValueError("Function index must be a nonnegative integer.")
         event = {
             "schema_version": 4 if navigation is not None else 3,
             "command": str(command),
@@ -519,6 +563,8 @@ class DataManager:
             "direction": direction,
             "source": str(source),
         }
+        if function_index is not None:
+            event["function"] = function_index
         if navigation is not None:
             event["navigation"] = deepcopy(navigation)
             event["success"] = success
@@ -583,6 +629,155 @@ class DataManager:
         if len(matches) != 1:
             raise ValueError("Ambiguous logical address: multiple command events match.")
         return matches[0]
+
+    # --- Compact, path-history-keyed command blocks (version 5) ---
+    # The coordinate file provides the real position; counter_universe
+    # disambiguates base-60 rollover; universe is the deterministic path key.
+    BLOCK_TYPES = {
+        "command": ("command_blocks", "command"),
+        "conversation": ("conversation_blocks", "block"),
+        "text": ("text_blocks", "text"),
+        "file": ("file_blocks", "file"),
+    }
+
+    @classmethod
+    def _block_type(cls, block_type):
+        if block_type not in cls.BLOCK_TYPES:
+            raise ValueError(f"Unknown block type: {block_type}")
+        return block_type
+
+    @staticmethod
+    def _load_block_file(path):
+        # Unlike legacy readers, never replace an unreadable existing file.
+        try:
+            with path.open(encoding="utf-8") as stream:
+                data = json.load(stream)
+        except FileNotFoundError:
+            return {}
+        if not isinstance(data, dict):
+            raise ValueError(f"Malformed coordinate file: {path}")
+        return data
+
+    def save_block(self, coordinate, block_type, content, universe, *,
+                           counter_universe=0, function=None, step=None,
+                           failed=False, source=None, attachments=None):
+        bucket, field = self.BLOCK_TYPES[self._block_type(block_type)]
+        if block_type in ("command", "text") and not isinstance(content, str):
+            raise ValueError("Command and text blocks require text.")
+        if block_type == "conversation" and (not isinstance(content, dict) or not all(isinstance(content.get(k), str) for k in ("user", "assistant"))):
+            raise ValueError("Conversation block requires user and assistant strings.")
+        json.dumps(content, allow_nan=False)
+        if attachments is not None and (not isinstance(attachments, list) or not all(isinstance(x, str) for x in attachments)):
+            raise ValueError("Attachments must be a list of strings.")
+        coordinate = self.coordinate_string(coordinate)
+        if not isinstance(universe, str) or len(universe) != 32 or any(
+                c not in "0123456789abcdef" for c in universe):
+            raise ValueError("Path universe must be 32 lowercase hexadecimal digits.")
+        if isinstance(counter_universe, bool) or not isinstance(counter_universe, int):
+            raise ValueError("Counter universe must be an integer.")
+        if function is not None and (isinstance(function, bool) or
+                not isinstance(function, int) or function < 0):
+            raise ValueError("Function selector must be a nonnegative integer.")
+        if step is not None and (isinstance(step, bool) or
+                not isinstance(step, int) or step < 0):
+            raise ValueError("Step magnitude must be a nonnegative integer.")
+        _, path = self.coordinate_location(coordinate, create=True)
+        data = self._load_block_file(path)
+        node = data.setdefault(coordinate, {})
+        blocks = node.setdefault(bucket, [])
+        if not isinstance(blocks, list):
+            raise ValueError("Coordinate block collection must be a list.")
+        if any(isinstance(b, dict) and b.get("universe") == universe and
+               b.get("counter_universe", 0) == counter_universe for b in blocks):
+            raise ValueError("Block already exists at this real/path universe.")
+        block = {field: deepcopy(content), "universe": universe}
+        if counter_universe != 0:
+            block["counter_universe"] = counter_universe
+        if function is not None:
+            block["function"] = function
+        if step is not None and step != 1:
+            block["step"] = step
+        if failed:
+            block["failed"] = True
+        if source is not None and (block_type != "command" or source != "base"):
+            block["source"] = str(source)
+        if attachments:
+            block["attachments"] = deepcopy(attachments)
+        blocks.append(block)
+        self._write_json(path, data)
+        return deepcopy(block)
+
+    def load_block(self, coordinate, block_type, universe, *, counter_universe=0):
+        bucket, _ = self.BLOCK_TYPES[self._block_type(block_type)]
+        node = self.get_coordinate_node(coordinate) or {}
+        matches = [b for b in node.get(bucket, [])
+                   if isinstance(b, dict) and b.get("universe") == universe and
+                   b.get("counter_universe", 0) == counter_universe]
+        if len(matches) != 1:
+            raise KeyError("Missing or ambiguous block.")
+        return deepcopy(matches[0])
+
+    def delete_block(self, coordinate, block_type, universe, *, counter_universe=0):
+        bucket, _ = self.BLOCK_TYPES[self._block_type(block_type)]
+        coordinate = self.coordinate_string(coordinate)
+        _, path = self.coordinate_location(coordinate)
+        data = self._load_block_file(path)
+        if not isinstance(data, dict):
+            return False
+        node = data.get(coordinate)
+        if not isinstance(node, dict):
+            return False
+        blocks = node.get(bucket, [])
+        previous = len(blocks)
+        blocks[:] = [b for b in blocks if not (isinstance(b, dict) and
+                     b.get("universe") == universe and
+                     b.get("counter_universe", 0) == counter_universe)]
+        if len(blocks) == previous:
+            return False
+        if not blocks:
+            node.pop(bucket, None)
+        if not node:
+            data.pop(coordinate, None)
+        if data:
+            self._write_json(path, data)
+        else:
+            path.unlink(missing_ok=True)
+            self._cleanup_empty_directories(path.parent)
+        return True
+
+    def save_command_block(self, coordinate, command, universe, *,
+                           counter_universe=0, function=None, step=None,
+                           failed=False, source=None):
+        return self.save_block(coordinate, "command", str(command), universe,
+                               counter_universe=counter_universe, function=function,
+                               step=step, failed=failed, source=source)
+
+    def load_command_block(self, coordinate, universe, *, counter_universe=0):
+        return self.load_block(coordinate, "command", universe, counter_universe=counter_universe)
+
+    def delete_command_block(self, coordinate, universe, *, counter_universe=0):
+        return self.delete_block(coordinate, "command", universe, counter_universe=counter_universe)
+
+    def save_conversation_block(self, coordinate, block, universe, **metadata):
+        return self.save_block(coordinate, "conversation", block, universe, **metadata)
+
+    def get_blocks_at_coordinate(self, coordinate, block_type=None):
+        coordinate = self.coordinate_string(coordinate)
+        return self._discover_blocks(coordinate, self.get_coordinate_node(coordinate) or {}, block_type)
+
+    def _discover_blocks(self, coordinate, node, block_type=None):
+        types = [self._block_type(block_type)] if block_type is not None else self.BLOCK_TYPES
+        return [dict(deepcopy(block), coordinate=coordinate, type=kind)
+                for kind in types for block in node.get(self.BLOCK_TYPES[kind][0], [])
+                if isinstance(block, dict)]
+
+    def list_blocks(self, block_type=None):
+        if block_type is not None:
+            self._block_type(block_type)
+        return [block for path in self.coordinate_dir.rglob("*.json")
+                for coordinate, node in self._load_block_file(path).items()
+                if isinstance(node, dict)
+                for block in self._discover_blocks(coordinate, node, block_type)]
 
     # --- Compact command chain storage ---
     # Each command is [text, universe, next_locator, optional_source].

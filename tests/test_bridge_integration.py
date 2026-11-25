@@ -44,6 +44,8 @@ class BridgeIntegrationTests(unittest.TestCase):
                 self.assertEqual(send("oais virtual hold"),
                                  ("FREE", "1 0 0 0 0 0"))
                 send("greetings")
+                # An explicit HOLD now freezes the virtual projection instead
+                # of integrating a linear host delta while detached.
                 self.assertEqual(send("oais virtual status"),
                                  ("FREE", "1 0 0 0 0 0"))
                 self.assertEqual(send("oais virtual sync"),

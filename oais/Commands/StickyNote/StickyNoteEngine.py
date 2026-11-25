@@ -4,19 +4,20 @@ from copy import deepcopy
 from datetime import datetime, timezone
 import hashlib
 import json
+import re
 from threading import RLock
 import uuid
 
 try:
     from ...utils.counter import Counter
     from ...utils.data_manager import DataManager
-    from ...utils.virtual_counter import VirtualCounter
-    from ..Navigator.NavigatorEngine import NavigatorEngine
+    from ...utils.virtual_counter import VirtualCounter, seed_path_universe, evolve_path_universe, address_to_integer
+    from ..Navigator.NavigatorEngine import NavigatorEngine, expression_for_definition, evaluate_offset
 except ImportError:  # python main.py from the project root
     from utils.counter import Counter
     from utils.data_manager import DataManager
-    from utils.virtual_counter import VirtualCounter
-    from Commands.Navigator.NavigatorEngine import NavigatorEngine
+    from utils.virtual_counter import VirtualCounter, seed_path_universe, evolve_path_universe, address_to_integer
+    from Commands.Navigator.NavigatorEngine import NavigatorEngine, expression_for_definition, evaluate_offset
 
 
 class StickyNoteEngine:
@@ -60,6 +61,8 @@ class StickyNoteEngine:
         data_manager=None,
         state_provider=None,
         navigation_provider=None,
+        navigation_context_provider=None,
+        terminal_id="oais_standalone",
     ):
         """
         counter:
@@ -95,8 +98,15 @@ class StickyNoteEngine:
         # Optional source of the pure Navigator snapshot at recording start.
         # Standalone legacy StickyNoteEngine instances do not require it.
         self.navigation_provider = navigation_provider
+        # Optional portable companion to navigation_provider(snapshot). The
+        # terminal supplies source identity without coupling this engine to JSON.
+        self.navigation_context_provider = navigation_context_provider
+        self.terminal_id = DataManager._safe_storage_name(terminal_id, "Terminal ID")
+        self._note_cache = {}
         self.navigation_start = None
+        self.navigation_context_start = None
         self.route_seed = None
+        self.note_id = None
 
         self.active = False
         self.paused = False
@@ -156,12 +166,23 @@ class StickyNoteEngine:
                 else {}
             )
             self.navigation_start = None
+            self.navigation_context_start = None
             self.route_seed = None
-            if self.session_metadata.get("storage") == "logical":
+            self.note_id = None
+            if self.session_metadata.get("storage") in ("logical", "data"):
                 if self.navigation_provider is None:
                     raise ValueError("Logical Sticky Note requires a Navigator state provider.")
                 self.navigation_start = deepcopy(self.navigation_provider())
+                if self.navigation_context_provider is not None:
+                    self.navigation_context_start = deepcopy(
+                        self.navigation_context_provider(self.navigation_start))
+                else:
+                    self.navigation_context_start = NavigatorEngine.portable_state(
+                        self.navigation_start)
                 self.route_seed = uuid.uuid4().hex
+                self.note_id = self.session_metadata.get("note_id") or uuid.uuid4().hex[:12]
+                if not isinstance(self.note_id, str) or not self.note_id:
+                    raise ValueError("Sticky Note ID must be nonempty text.")
 
             return self.status()
 
@@ -280,6 +301,12 @@ class StickyNoteEngine:
             return True
 
 
+    def mark_last_failed(self, command):
+        """Mark a recorded boundary attempt that failed before commit."""
+        with self._lock:
+            if self.path and self.path[-1]["value"] == command:
+                self.path[-1]["success"] = False
+
     def record_command(
         self,
         command,
@@ -341,7 +368,9 @@ class StickyNoteEngine:
         self.started_at = None
         self.session_metadata = {}
         self.navigation_start = None
+        self.navigation_context_start = None
         self.route_seed = None
+        self.note_id = None
 
 
     # ==========================================================
@@ -376,8 +405,13 @@ class StickyNoteEngine:
         with self._lock:
             if not self.path:
                 raise ValueError("No events to save")
+            kinds = {event["type"] for event in self.path}
+            if self.session_metadata.get("storage") == "data" or kinds - {"command", "transition"}:
+                return self._save_data_reference(title, storage_coordinate, metadata)
             if self.session_metadata.get("storage") == "logical":
-                return self._save_logical_reference(title, storage_coordinate)
+                if self.session_metadata.get("storage_version") == 4:
+                    return self._save_logical_reference(title, storage_coordinate)
+                return self._save_compact_logical_reference(title, storage_coordinate)
             writes = []
             next_locator = None
             try:
@@ -473,23 +507,50 @@ class StickyNoteEngine:
         nav = block.get("navigation", {"op": "none"})
         op = nav.get("op", "none")
         if op == "none":
+            if (not navigator.layers and navigator.virtual.mode == "free"
+                    and block.get("follow_update") and host_after is not None
+                    and block.get("host_before") is not None):
+                delta = (address_to_integer(host_after, block.get("host_universe_after", 0)) -
+                         address_to_integer(block["host_before"], block.get("host_universe_before", 0)))
+                navigator.advance_linear(delta)
             return
-        if op == "auto":
-            if navigator.advance_automatic() is None:
+        if op in ("auto", "auto_back", "auto_forward"):
+            result = (navigator.advance_host_direction(-1 if op == "auto_back" else 1)
+                      if op != "auto" else navigator.advance_automatic())
+            if result is None:
                 raise ValueError("Recorded automatic navigation has no active function.")
-        elif op in ("open", "child"):
+        elif op in ("open", "child", "push"):
+            if op == "open" and nav.get("anchor") is not None:
+                navigator.reset_to_linear(nav["anchor"], nav.get("counter_universe", 0))
             ref = nav["ref"]
-            state = navigator.virtual.snapshot()
-            definition = self.data_manager.load_pole_function(
-                state["coordinate"], ref,
-                counter_universe=state["counter_universe"])
-            spec = definition["definition"]
-            if op == "open":
-                navigator.open_pole(spec["name"], spec.get("params"),
-                                    seed=definition["entry_seed"], activation_id=ref)
+            # v12 normal recordings already contain the mathematical expression
+            # in their in-memory event. Never resolve newly opened functions
+            # from shared coordinate objects; those only contain commands.
+            if "f" in nav:
+                expression = nav["f"]
+                seed = nav.get("seed")
+                if op == "open":
+                    navigator.open_pole(expression, seed=seed, activation_id=ref)
+                elif op == "push":
+                    navigator.push_function(expression, activation_id=ref)
+                else:
+                    navigator.open_child(expression, activation_id=ref)
             else:
-                navigator.open_child(spec["name"], spec.get("params"),
-                                     activation_id=ref)
+                # Read older v4 transition events that used pole_function
+                # objects. This is backward compatibility, not a new write.
+                state = navigator.virtual.snapshot()
+                definition = self.data_manager.load_pole_function(
+                    state["coordinate"], ref,
+                    counter_universe=state["counter_universe"])
+                spec = definition["definition"]
+                if op == "open":
+                    navigator.open_pole(spec["name"], spec.get("params"),
+                                        seed=definition.get("entry_seed"), activation_id=ref)
+                elif op == "push":
+                    navigator.push_function(spec["name"], spec.get("params"), activation_id=ref)
+                else:
+                    navigator.open_child(spec["name"], spec.get("params"),
+                                         activation_id=ref)
         elif op == "away":
             navigator.away()
         elif op == "turn":
@@ -504,10 +565,11 @@ class StickyNoteEngine:
             navigator.virtual.hold()
             navigator.pause()
         elif op == "sync":
-            if host_after is None:
-                raise ValueError("Synchronization event has no host target.")
+            target = nav.get("target", host_after)
+            if target is None:
+                raise ValueError("Synchronization event has no target.")
             navigator.reset_to_linear(
-                host_after, block.get("host_universe_after", 0))
+                target, nav.get("counter_universe", block.get("host_universe_after", 0)))
         else:
             raise ValueError("Unsupported recorded navigation operation: " + str(op))
 
@@ -517,6 +579,197 @@ class StickyNoteEngine:
         if (v.logical_address() != address or v.universe != counter_universe
                 or v.direction != direction):
             raise ValueError("Saved Sticky Note traversal diverged from its logical address.")
+
+    @staticmethod
+    def _portable_signature(snapshot):
+        """Hashable projection independent of random pole activation references.
+
+        This is the v5/v6 on-disk history convention; changing it later
+        requires a separate hash version and reader. Runtime Navigator history
+        uses its own unrelated path-universe calculation.
+        """
+        layers = snapshot["layers"]
+        v = snapshot["virtual"]
+        stack = [{"f": expression_for_definition(layer["definition"]),
+                  "k": layer["k"],
+                  "direction": -1 if layer["leg"] == "toward" else 1}
+                 for layer in layers]
+        return [v["coordinate"], stack, stack[-1]["f"] if stack else "k"]
+
+    def _save_compact_logical_reference(self, title, storage_coordinate=None):
+        """Write existing compact public command blocks and a private v11 plan.
+
+        The terminal note owns the complete starting mathematical context and
+        ordered event plan; public coordinate blocks contain only compact
+        command data/history keys and optional selector indexes. Replay is
+        intentionally separate and is not invoked by saving a note.
+        """
+        if self.navigation_start is None or self.note_id is None:
+            raise ValueError("Missing logical recording origin or note identity.")
+        navigator = NavigatorEngine(VirtualCounter())
+        navigator.restore(deepcopy(self.navigation_start))
+        first = self.path[0]
+        start = self.data_manager.validate_logical_address(first["logical_before"])
+        overflow_start = int(first["logical_counter_universe_before"])
+        if storage_coordinate is not None and self.data_manager.coordinate_string(storage_coordinate) != start[0]:
+            raise ValueError("Logical Sticky Note must be anchored at its starting coordinate.")
+        history = seed_path_universe(start[0], self.note_id, counter_universe=overflow_start)
+        written = []
+        functions = []
+        plan = []  # Terminal-private, ordered, self-contained replay input.
+        lookup = {}
+        previous_selector = None
+        initial_layers = deepcopy(self.navigation_start["layers"])
+        initial_slot = None
+        if initial_layers:
+            top = initial_layers[-1]
+            initial_slot = (expression_for_definition(top["definition"]),
+                            -1 if top["leg"] == "toward" else 1)
+        try:
+            for index, event in enumerate(self.path):
+                before = self.data_manager.validate_logical_address(
+                    event["logical_before"], direction=event["logical_direction_before"])
+                after = self.data_manager.validate_logical_address(
+                    event["logical_after"], direction=event["logical_direction_after"])
+                before_u = int(event["logical_counter_universe_before"])
+                after_u = int(event["logical_counter_universe_after"])
+                self._check_cursor(navigator, before, before_u,
+                                   event["logical_direction_before"])
+                nav = event.get("navigation", {"op": "none"})
+                op = nav.get("op", "none")
+                before_snapshot = navigator.snapshot()
+                before_layers = deepcopy(before_snapshot["layers"])
+                simulation = {"navigation": nav,
+                              "host_before": event.get("coordinate_before"),
+                              "host_universe_before": event.get("universe_before", 0),
+                              "host_after": event.get("host_after"),
+                              "host_universe_after": event.get("host_universe_after", 0),
+                              "follow_update": event.get("follow_update", False)}
+                self._advance_recorded_navigation(navigator, simulation)
+                self._check_cursor(navigator, after, after_u,
+                                   event["logical_direction_after"])
+                after_snapshot = navigator.snapshot()
+                after_layers = deepcopy(after_snapshot["layers"])
+                if op in ("open", "push", "child"):
+                    # Newly established pole, k=0 except historical child().
+                    active = after_layers[-1] if after_layers else None
+                    direction = 1
+                elif before_layers:
+                    # Even when the final return step POPS its layer, that
+                    # command still references the function it just traversed.
+                    # Reversing an empty child spends its tick on its parent.
+                    active = (before_layers[-2] if op == "turn" and
+                              before_layers[-1]["k"] == 0 and
+                              len(before_layers) > 1 else before_layers[-1])
+                    direction = -1 if (op in ("turn", "toward") or op == "auto_back" or
+                                       (op == "auto" and active["leg"] == "toward")) else 1
+                else:
+                    active = None
+                    delta = (address_to_integer(after[0], after_u) -
+                             address_to_integer(before[0], before_u))
+                    direction = -1 if delta < 0 else 1
+                expression = (expression_for_definition(active["definition"])
+                              if active is not None else "k")
+                signature = (expression, direction)
+                if signature not in lookup:
+                    selector = len(functions)
+                    lookup[signature] = selector
+                    function = {"f": expression, "direction": direction}
+                    # Common case: recording starts partway through ONE pole.
+                    # The real pole is start - [g(k)-g(0)].
+                    if (index == 0 and len(initial_layers) == 1
+                            and signature == initial_slot and initial_layers[0]["k"]):
+                        function["k"] = initial_layers[0]["k"]
+                    functions.append(function)
+                selector = lookup[signature]
+                distance = (address_to_integer(after[0], after_u) -
+                            address_to_integer(before[0], before_u))
+                if active is not None:
+                    step = (1 if before[1] != after[1] and op not in
+                            ("open", "push", "pause", "resume", "hold") else 0)
+                else:
+                    step = (0 if op in ("open", "push", "pause", "resume", "hold", "sync")
+                            else abs(distance))
+                # Unlike public coordinate blocks, the private terminal note
+                # owns the ordered command plan. Function selection, source
+                # movement, and control transitions are explicit so the future
+                # ReplayEngine never has to guess an event order or look up a
+                # pi_ activation ID at the pole. The plan is compact: no
+                # duplicated per-step virtual coordinate is necessary.
+                item = {"command": str(event.get("value", "")),
+                        "source": event.get("source", "base"), "op": op}
+                if event.get("success") is False:
+                    item["failed"] = True
+                host_before = event.get("coordinate_before")
+                host_after = event.get("coordinate_after")
+                if host_before is not None and host_after is not None:
+                    source_delta = (address_to_integer(
+                        host_after, int(event.get("universe_after", 0))) -
+                        address_to_integer(host_before, int(event.get("universe_before", 0))))
+                    if source_delta:
+                        item["delta"] = source_delta
+                if op in ("open", "push", "child"):
+                    item["f"] = expression_for_definition(after_layers[-1]["definition"])
+                    if op == "open" and nav.get("anchor") is not None:
+                        item["anchor"] = nav["anchor"]
+                        if nav.get("counter_universe"):
+                            item["anchor_universes"] = nav["counter_universe"]
+                elif op == "sync":
+                    item["target"] = after[0]
+                    if after_u:
+                        item["target_universes"] = after_u
+                plan.append(item)
+                block = self.data_manager.save_command_block(
+                    before[0], event.get("value", ""), f"{history:032x}",
+                    counter_universe=before_u,
+                    function=selector if selector != previous_selector else None,
+                    step=step, failed=event.get("success") is False,
+                    source=event.get("source", "base"))
+                written.append((before[0], block["universe"], before_u))
+                previous_selector = selector
+                history = evolve_path_universe(
+                    history, self._portable_signature(before_snapshot),
+                    self._portable_signature(after_snapshot),
+                    f"event:{index}:{event.get('value', '')}:{op}",
+                    counter_universe_before=before_u,
+                    counter_universe_after=after_u)
+            last = self.path[-1]
+            end = self.data_manager.validate_logical_address(last["logical_after"])
+            note = {"id": self.note_id, "title": str(title),
+                    "start": start[0], "end": end[0],
+                    "start_state": deepcopy(self.navigation_context_start or
+                        NavigatorEngine.portable_state(self.navigation_start)),
+                    # Preserved catalog for the already-stored command-block
+                    # function selectors. No note title/history/plan is public.
+                    "functions": functions,
+                    "blocks": len(self.path),
+                    "plan": plan}
+            if (note["start_state"]["coordinate"] != start[0] or
+                    note["start_state"]["universes"] != overflow_start):
+                raise ValueError("Recorded start differs from the Sticky Note navigation origin.")
+            if overflow_start:
+                note["start_universe"] = overflow_start
+            end_u = int(last["logical_counter_universe_after"])
+            if end_u:
+                note["end_universe"] = end_u
+            collection = self.data_manager.load_terminal_data(self.terminal_id, "sticky_notes_commands")
+            notes = collection.setdefault("notes", [])
+            if not isinstance(notes, list):
+                raise ValueError("Terminal Sticky Note collection is malformed.")
+            if any(isinstance(n, dict) and n.get("id") == self.note_id for n in notes):
+                raise ValueError("Sticky Note ID collision.")
+            notes.append(note)
+            # Version 3 notes have self-contained replay plans. Existing v2
+            # notes remain present/readable and are never silently migrated.
+            collection["version"] = 3
+            collection.pop("terminal_id", None)
+            self.data_manager.save_terminal_data(self.terminal_id, "sticky_notes_commands", collection)
+            return deepcopy(note)
+        except Exception:
+            for coordinate, universe, counter_universe in reversed(written):
+                self.data_manager.delete_command_block(
+                    coordinate, universe, counter_universe=counter_universe)
+            raise
 
     def _save_logical_reference(self, title, storage_coordinate=None):
         """Commit event-local records; note at entry carries one lookup seed.
@@ -530,6 +783,9 @@ class StickyNoteEngine:
         writes = []
         note_id = uuid.uuid4().hex[:12]
         pointer_coordinate = None
+        functions = []
+        function_lookup = {}
+        previous_function_index = None
         try:
             for index, event in enumerate(self.path):
                 addr = self.data_manager.validate_logical_address(event["logical_before"],
@@ -540,10 +796,23 @@ class StickyNoteEngine:
                 event_id = self._logical_event_id(
                     self.route_seed, index, addr, overflow, direction)
                 navigation = event.get("navigation", {"op": "none"})
+                # A function slot selects a projection rule and its direction.
+                # k (imaginary progression) is still owned by Navigator.
+                active = navigator.snapshot()["layers"]
+                spec = deepcopy(active[-1]["definition"]) if active else {
+                    "name": "linear_offset", "version": 1, "params": {"slope": 1}}
+                signature = json.dumps([spec, direction], sort_keys=True, separators=(",", ":"))
+                if signature not in function_lookup:
+                    function_lookup[signature] = len(functions)
+                    functions.append({"definition": spec, "direction": direction})
+                current_function_index = function_lookup[signature]
+                # Store the selector only on the first command or when it changes.
+                selector = (current_function_index if current_function_index != previous_function_index
+                            else None)
                 stored = self.data_manager.save_logical_command(
                     addr, event.get("value", ""), counter_universe=overflow,
                     direction=direction, event_id=event_id,
-                    source=event.get("source", "oais"), navigation=navigation,
+                    function_index=selector, source=event.get("source", "oais"), navigation=navigation,
                     host_after=(event.get("host_after") if (
                         event.get("follow_update", False) or navigation.get("op") == "sync")
                         else None),
@@ -554,6 +823,7 @@ class StickyNoteEngine:
                     meta_transition=({"from": event["from"], "to": event["to"]}
                         if event.get("type") == "transition" else None))
                 writes.append((addr[0], stored["id"]))
+                previous_function_index = current_function_index
                 self._advance_recorded_navigation(navigator, stored)
                 self._check_cursor(navigator, event["logical_after"],
                                    event["logical_counter_universe_after"],
@@ -566,21 +836,31 @@ class StickyNoteEngine:
                 storage_coordinate or start[0])
             if pointer_coordinate != start[0]:
                 raise ValueError("Logical Sticky Note must be anchored at its starting coordinate.")
-            note = self.data_manager.save_object(
-                pointer_coordinate, self.OBJECT_TYPE, note_id, {
-                    "schema_version": 4, "storage": "logical", "title": str(title),
-                    "start": start, "start_counter_universe": first["logical_counter_universe_before"],
-                    "start_direction": first["logical_direction_before"],
-                    "initial_state": self._portable_navigation(self.navigation_start),
-                    "route_seed": self.route_seed,
-                    "event_count": len(self.path), "after": after,
-                    "after_counter_universe": last["logical_counter_universe_after"],
-                    "after_direction": last["logical_direction_after"],
-                    "scope": self.session_metadata.get("scope", "all"),
-                })
+            note = {
+                "id": note_id, "type": self.OBJECT_TYPE,
+                "schema_version": 4, "storage": "logical", "title": str(title),
+                "start": start, "start_counter_universe": first["logical_counter_universe_before"],
+                "start_direction": first["logical_direction_before"],
+                "initial_state": self._portable_navigation(self.navigation_start),
+                "route_seed": self.route_seed,
+                "functions": functions,
+                "event_count": len(self.path), "after": after,
+                "after_counter_universe": last["logical_counter_universe_after"],
+                "after_direction": last["logical_direction_after"],
+                "scope": self.session_metadata.get("scope", "all"),
+            }
+            # The path definition belongs to the terminal, not coordinate space.
+            collection = self.data_manager.load_terminal_data(self.terminal_id, "sticky_notes_commands")
+            notes = collection.setdefault("notes", [])
+            if not isinstance(notes, list):
+                raise ValueError("Terminal Sticky Note collection is malformed.")
+            if any(isinstance(n, dict) and n.get("id") == note_id for n in notes):
+                raise ValueError("Sticky Note ID collision.")
+            notes.append(note)
+            collection["version"] = 1
+            collection["terminal_id"] = self.terminal_id
+            self.data_manager.save_terminal_data(self.terminal_id, "sticky_notes_commands", collection)
         except Exception:
-            if pointer_coordinate is not None:
-                self.data_manager.delete_object(pointer_coordinate, self.OBJECT_TYPE, note_id)
             for coord, event_id in reversed(writes):
                 self.data_manager.delete_object(coord, "logical_command", event_id)
             raise
@@ -639,9 +919,185 @@ class StickyNoteEngine:
                            note["after_counter_universe"], note["after_direction"])
         return events
 
-    def load_path(self, identifier):
-        """Reconstruct v4 navigator paths; retain all legacy readers unchanged."""
-        note = self.get_note(identifier)
+    @staticmethod
+    def _collection_name(block_type):
+        if block_type == "command":
+            return "sticky_notes_commands"
+        DataManager._block_type(block_type)
+        return f"sticky_notes_{block_type}s" if block_type != "text" else "sticky_notes_text"
+
+    @staticmethod
+    def _data_navigator(start_state):
+        navigator = NavigatorEngine(VirtualCounter())
+        navigator.restore_portable(start_state)
+        if len(navigator.layers) != 1 or navigator.layers[0]["leg"] != "away":
+            raise ValueError("Data paths currently require one outward function (use k for linear).")
+        return navigator
+
+    @classmethod
+    def _data_history_next(cls, history, before, after, kind, value, source, attachments, index):
+        # Hash canonical structured data, not Python's string representation.
+        payload = json.dumps([kind, value, source, attachments, index], sort_keys=True,
+                             ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+        return evolve_path_universe(history, cls._portable_signature(before),
+                                   cls._portable_signature(after), "data-v1:" + payload,
+                                   counter_universe_before=before["virtual"]["counter_universe"],
+                                   counter_universe_after=after["virtual"]["counter_universe"])
+
+    def _save_data_reference(self, title, storage_coordinate=None, metadata=None):
+        """Save one homogeneous typed path, one outward k step per event.
+
+        Coordinates and histories are derived from the portable origin. The
+        private note holds no payloads or per-block locators. A caller can
+        submit the full extended path with the same ID to append safely.
+        """
+        kinds = {event["type"] for event in self.path}
+        if len(kinds) != 1 or kinds & {"command", "transition"}:
+            raise ValueError("Data paths must contain one non-command block type.")
+        kind = self.data_manager._block_type(next(iter(kinds)))
+        if self.navigation_start is None or self.note_id is None:
+            raise ValueError("Start data recording with a Navigator provider and storage=data.")
+        start_state = NavigatorEngine.portable_state(self.navigation_start)
+        navigator = self._data_navigator(start_state)
+        start = start_state["coordinate"]
+        overflow = start_state["universes"]
+        if storage_coordinate is not None and self.data_manager.coordinate_string(storage_coordinate) != start:
+            raise ValueError("Data note must be anchored at its starting coordinate.")
+        collection_name = self._collection_name(kind)
+        collection = self.data_manager.load_terminal_data(self.terminal_id, collection_name)
+        notes = collection.setdefault("notes", [])
+        if not isinstance(notes, list):
+            raise ValueError("Malformed Sticky Note collection.")
+        existing = next((note for note in notes if note.get("id") == self.note_id), None)
+        if existing is not None:
+            if existing.get("start_state") != start_state or existing.get("blocks", 0) > len(self.path):
+                raise ValueError("Existing data path differs or is longer; use a new version.")
+            old_events = self._load_data_path(existing)
+            for old, new in zip(old_events, self.path):
+                if (old["value"], old.get("source"), old.get("attachments", [])) != (
+                        new["value"], new.get("source"), new.get("attachments", [])):
+                    raise ValueError("Existing data path differs; use a new version.")
+            if len(old_events) == len(self.path):
+                return deepcopy(existing)
+        already = existing["blocks"] if existing else 0
+        history = seed_path_universe(start, self.note_id, counter_universe=overflow)
+        written = []
+        try:
+            for index, event in enumerate(self.path):
+                before = navigator.snapshot()
+                coordinate = before["virtual"]["coordinate"]
+                counter = before["virtual"]["counter_universe"]
+                source = event.get("source", "oais")
+                if not isinstance(source, str) or not source:
+                    raise ValueError("Data event source must be nonempty text.")
+                attachments = event.get("attachments", [])
+                if not isinstance(attachments, list) or not all(isinstance(a, str) for a in attachments):
+                    raise ValueError("Data event attachments must be a list of strings.")
+                if event.get("success") is False:
+                    raise ValueError("Cannot save failed data events.")
+                if "logical_before" in event and (event["logical_before"][0] != coordinate or
+                        event["logical_counter_universe_before"] != counter):
+                    raise ValueError("Data event differs from its projected coordinate.")
+                after = navigator.away()
+                if "logical_after" in event and (event["logical_after"][0] != after["virtual"]["coordinate"] or
+                        event["logical_counter_universe_after"] != after["virtual"]["counter_universe"]):
+                    raise ValueError("Data event must advance by one outward step.")
+                if index >= already:
+                    key = f"{history:032x}"
+                    self.data_manager.save_block(coordinate, kind, event["value"], key,
+                        counter_universe=counter, function=0 if index == 0 else None,
+                        source=source if source != "oais" else None, attachments=attachments)
+                    written.append((coordinate, key, counter))
+                history = self._data_history_next(history, before, after, kind,
+                                                  event["value"], source, attachments, index)
+            final = navigator.virtual.snapshot()
+            note = {"id": self.note_id, "title": str(title), "type": kind,
+                    "storage": "functional_data_v1", "start": start,
+                    "end": final["coordinate"], "start_state": start_state,
+                    "functions": [{"f": start_state["functions"][0]["f"], "direction": 1}],
+                    "blocks": len(self.path), "end_history": f"{history:032x}"}
+            if overflow:
+                note["start_universe"] = overflow
+            if final["counter_universe"]:
+                note["end_universe"] = final["counter_universe"]
+            if metadata:
+                note["metadata"] = deepcopy(metadata)
+            elif existing and "metadata" in existing:
+                note["metadata"] = deepcopy(existing["metadata"])
+            if existing:
+                notes[notes.index(existing)] = note
+            else:
+                notes.append(note)
+            collection.setdefault("version", 1)
+            self.data_manager.save_terminal_data(self.terminal_id, collection_name, collection)
+            return deepcopy(note)
+        except Exception:
+            for coordinate, key, counter in reversed(written):
+                self.data_manager.delete_block(coordinate, kind, key, counter_universe=counter)
+            raise
+
+    def _load_data_path(self, note):
+        kind = self.data_manager._block_type(note["type"])
+        count = note["blocks"]
+        if type(count) is not int or not 0 < count <= 1000000:
+            raise ValueError("Invalid data path block count.")
+        navigator = self._data_navigator(note["start_state"])
+        start = navigator.virtual.snapshot()
+        if (start["coordinate"], start["counter_universe"]) != (note["start"], note.get("start_universe", 0)):
+            raise ValueError("Data note origin is inconsistent.")
+        history = seed_path_universe(note["start"], note["id"], counter_universe=start["counter_universe"])
+        events = []
+        field = self.data_manager.BLOCK_TYPES[kind][1]
+        for index in range(count):
+            before = navigator.snapshot()
+            coord = before["virtual"]["coordinate"]
+            counter = before["virtual"]["counter_universe"]
+            block = self.data_manager.load_block(coord, kind, f"{history:032x}", counter_universe=counter)
+            value, source, attachments = block[field], block.get("source", "oais"), block.get("attachments", [])
+            after = navigator.away()
+            events.append({"type": kind, "value": value, "source": source,
+                           "attachments": attachments, "sequence": index,
+                           "coordinate_before": coord, "coordinate_after": after["virtual"]["coordinate"],
+                           "universe": block["universe"], "counter_universe": counter})
+            history = self._data_history_next(history, before, after, kind, value, source, attachments, index)
+        final = navigator.virtual.snapshot()
+        if (final["coordinate"], final["counter_universe"], f"{history:032x}") != (
+                note["end"], note.get("end_universe", 0), note["end_history"]):
+            raise ValueError("Data path endpoint or history does not match.")
+        return events
+
+    def load_path(self, identifier, block_type=None, *, include_legacy=False):
+        """Reconstruct one saved path; coordinate-only legacy lookup is opt-in."""
+        note = self.get_note(identifier, block_type=block_type, include_legacy=include_legacy)
+        if note.get("storage") == "functional_data_v1":
+            return note, self._load_data_path(note)
+        if isinstance(note.get("plan"), list):
+            # v11+ notes own an ordered command plan in terminal_data. The
+            # shared coordinate blocks are intentionally NOT read to replay it.
+            plan = note["plan"]
+            count = note.get("blocks")
+            if isinstance(count, bool) or not isinstance(count, int) or count != len(plan):
+                raise ValueError("Sticky Note plan length does not match its block count.")
+            if not isinstance(note.get("start_state"), dict):
+                raise ValueError("Sticky Note lacks its mathematical starting state.")
+            if note["start_state"].get("coordinate") != note.get("start"):
+                raise ValueError("Sticky Note starting coordinate is inconsistent.")
+            events = []
+            for index, item in enumerate(plan):
+                if (not isinstance(item, dict) or not isinstance(item.get("command"), str)
+                        or not isinstance(item.get("source"), str)
+                        or not isinstance(item.get("op"), str)):
+                    raise ValueError(f"Invalid Sticky Note plan event {index + 1}.")
+                events.append({"type": "command", "value": item["command"],
+                               "source": item["source"],
+                               "success": not bool(item.get("failed", False)),
+                               "sequence": index, "from_plan": True,
+                               "navigation": {"op": item["op"]}})
+            return note, events
+        if (note.get("schema_version") == 5 or
+                (isinstance(note.get("start"), str) and
+                 "functions" in note and "blocks" in note)):
+            raise NotImplementedError("Older compact notes without a private plan require legacy reconstruction.")
         if note.get("schema_version") == 4 and note.get("storage") == "logical":
             return note, self._load_logical_path(note)
         if "start" in note and "end" in note:
@@ -750,15 +1206,106 @@ class StickyNoteEngine:
     # SAVED NOTES
     # ==========================================================
 
-    def list_notes(self):
-        return (self.data_manager.list_sticky_pointers()
-                + self.data_manager.list_objects(self.OBJECT_TYPE))
-
-    def get_note(self, identifier):
+    @staticmethod
+    def _file_signature(path):
         try:
-            return self.data_manager.find_sticky_pointer(identifier)
-        except KeyError:
-            return self.data_manager.find_object(self.OBJECT_TYPE, identifier)
+            stat = path.stat()
+            return (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
+        except FileNotFoundError:
+            return None
+
+    def _collection_notes(self, kind):
+        """Cache one terminal collection; atomic replacement invalidates the cache."""
+        name = self._collection_name(kind)
+        path = self.data_manager.terminal_data_location(self.terminal_id, name)
+        signature = self._file_signature(path)
+        # The DataManager may migrate an old terminal-owned command collection.
+        legacy = self._file_signature(path.with_name("sticky_notes.json")) if kind == "command" and signature is None else None
+        key = (signature, legacy)
+        cached = self._note_cache.get(kind)
+        if cached is not None and cached[0] == key:
+            return cached[1]
+        collection = self.data_manager.load_terminal_data(self.terminal_id, name)
+        notes = collection.get("notes", [])
+        if not isinstance(notes, list) or any(not isinstance(n, dict) for n in notes):
+            raise ValueError("Terminal Sticky Note collection is malformed.")
+        # If another process replaced the file during the read, do not cache stale data.
+        current = self._file_signature(path)
+        if current == signature and legacy is None:
+            self._note_cache[kind] = (key, notes)
+        return notes
+
+    def _note_entries(self, block_type=None):
+        kinds = [self.data_manager._block_type(block_type)] if block_type is not None else self.data_manager.BLOCK_TYPES
+        return [(kind, note) for kind in kinds for note in self._collection_notes(kind)]
+
+    def _terminal_notes(self, block_type=None):
+        return [note for _, note in self._note_entries(block_type)]
+
+    def list_notes(self, block_type=None, *, include_legacy=False):
+        """Return detached full records; no coordinate scans unless explicitly requested."""
+        result = deepcopy(self._terminal_notes(block_type))
+        if include_legacy and block_type in (None, "command"):
+            result.extend(self.data_manager.list_sticky_pointers())
+            result.extend(self.data_manager.list_objects(self.OBJECT_TYPE))
+        return result
+
+    def browse_notes(self, block_type=None, *, query="", page=1, limit=20):
+        """Metadata-only discovery. Page numbers are one-based; no path reconstruction."""
+        if type(page) is not int or page < 1 or type(limit) is not int or not 1 <= limit <= 200:
+            raise ValueError("Page must be positive; limit must be 1–200.")
+        if not isinstance(query, str):
+            raise ValueError("Search query must be text.")
+        query = query.strip().casefold()
+        tokens = re.findall(r"\w+", query)
+        matches = []
+        for kind, note in self._note_entries(block_type):
+            title = str(note.get("title", "Untitled")).casefold()
+            identifier = str(note.get("id", "")).casefold()
+            if query:
+                if query == identifier or query == title:
+                    rank = 0
+                elif query in title:
+                    rank = 1
+                elif tokens and all(t in title for t in tokens):
+                    rank = 2
+                else:
+                    continue
+            else:
+                rank = 0
+            matches.append((rank, kind, note))
+        if query:
+            matches.sort(key=lambda item: item[0])  # stable file order for ties
+        total = len(matches)
+        offset = (page - 1) * limit
+        items = []
+        for index, (_, kind, note) in enumerate(matches[offset:offset + limit], offset + 1):
+            items.append({"number": index, "id": note.get("id"), "title": note.get("title", "Untitled"),
+                          "type": kind, "start": note.get("start", note.get("start_coordinate")),
+                          "end": note.get("end", note.get("end_coordinate")),
+                          "blocks": note.get("blocks", note.get("event_count"))})
+        return {"items": deepcopy(items), "page": page, "limit": limit, "total": total,
+                "pages": (total + limit - 1) // limit, "query": query, "type": block_type}
+
+    def search_notes(self, query, block_type=None, *, page=1, limit=20):
+        return self.browse_notes(block_type, query=query, page=page, limit=limit)
+
+    def get_note(self, identifier, block_type=None, *, include_legacy=False):
+        identifier = str(identifier).strip().casefold()
+        notes = self._terminal_notes(block_type)
+        matches = [n for n in notes if str(n.get("id", "")).casefold() == identifier]
+        if not matches:
+            matches = [n for n in notes if str(n.get("title", "")).casefold() == identifier]
+        if len(matches) == 1:
+            return deepcopy(matches[0])
+        if len(matches) > 1:
+            raise ValueError("Multiple Sticky Notes match; use a unique ID or type.")
+        if include_legacy and block_type in (None, "command"):
+            try:
+                return self.data_manager.find_sticky_pointer(identifier)
+            except KeyError:
+                return self.data_manager.find_object(self.OBJECT_TYPE, identifier)
+        raise KeyError(identifier)
 
     def read(
         self,
@@ -869,7 +1416,8 @@ class StickyNoteEngine:
         before_universe = event.get("universe_before", universe)
         normalized = {
             "type": event.get("type", "command"),
-            "value": str(event.get("value", "")),
+            "value": (str(event.get("value", "")) if event.get("type", "command") in ("command", "transition")
+                      else deepcopy(event.get("value"))),
             "source": event.get("source", "oais"),
             "coordinate_before": before,
             "coordinate_after": after,
@@ -881,6 +1429,8 @@ class StickyNoteEngine:
         if normalized["type"] == "transition":
             normalized["from"] = event.get("from")
             normalized["to"] = event.get("to")
+        if "attachments" in event and normalized["type"] not in ("command", "transition"):
+            normalized["attachments"] = deepcopy(event["attachments"])
         # Retain only navigator routing data, not arbitrary host payloads.
         for key in ("logical_before", "logical_after", "logical_counter_universe_before",
                     "logical_counter_universe_after", "logical_direction_before",

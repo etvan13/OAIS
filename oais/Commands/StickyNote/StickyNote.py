@@ -36,11 +36,19 @@ class StickyNote:
             if not command:
                 continue
             before_state = self.terminal.begin_nested_input(command)
+            text = "sticky " + command
+            action = command.split()[0].lower()
+            was_active = self.engine.active
             if command.lower() in ("exit", "back"):
-                self.terminal.end_nested_input(command, before_state)
+                self.terminal.end_nested_input(text, before_state)
                 break
+            boundary_recorded = False
+            if action in ("stop", "save", "clear"):
+                boundary_recorded = self.terminal.sticky_boundary_before(text, before_state)
             message = self.process_command(command)
-            self.terminal.end_nested_input(command, before_state)
+            if boundary_recorded and message.startswith("Could not save Sticky Note:"):
+                self.engine.mark_last_failed(text)
+            self.terminal.sticky_boundary_after(text, before_state, was_active)
             if message:
                 print(message)
         return "Returning to terminal."
@@ -53,13 +61,14 @@ class StickyNote:
         if action == "help":
             return (
                 "Sticky Note commands:\n"
-                "  start         Start recording the current terminal scope\n"
+                "  start         Start recording all commands\n"
                 "  stop          Stop recording; keep the temporary path\n"
                 "  status        Show recording state\n"
                 "  path          Show the temporary command path\n"
                 "  save <title>  Commit the cached path to OAIS coordinates\n"
-                "  list          List saved coordinate paths\n"
-                "  read <title>  Reconstruct a saved path from DataManager\n"
+                "  list [type] [page]  Browse saved paths (all, commands, conversations, text, files)\n"
+                "  search <title>      Search saved note titles\n"
+                "  read <title>  Read saved information (commands also support replay)\n"
                 "  clear         Discard the temporary path\n"
                 "  exit          Return to the terminal"
             )
@@ -70,7 +79,7 @@ class StickyNote:
             if self.engine.get_path():
                 return "A temporary path exists. Save or clear it before starting again."
             self.engine.start(clear=True, metadata={
-                "scope": self.terminal.recording_scope, "storage": "logical"})
+                "scope": "all", "storage": "logical"})
             virtual = self.terminal.virtual_counter.logical_address()
             return f"Recording started at virtual {virtual}."
 
@@ -106,20 +115,31 @@ class StickyNote:
             self.engine.stop(clear=True)
             return "Temporary path cleared."
 
-        if action == "list":
-            notes = self.engine.list_notes()
-            if notes:
-                return "SAVED STICKY NOTES\n" + "\n".join(
-                    f"  {note.get('title', 'Untitled')} [{note['id']}]"
-                    for note in notes
-                )
-            # Old text-only recordings remain available.
-            files = sorted(self.save_dir.glob("*.txt")) if self.save_dir.exists() else []
-            if files:
-                return "LEGACY TEXT NOTES\n" + "\n".join(
-                    f"  {file.stem}" for file in files
-                )
-            return "No saved Sticky Notes."
+        if action in ("list", "search"):
+            aliases = {"all": None, "commands": "command", "conversations": "conversation", "files": "file", "command": "command", "conversation": "conversation", "file": "file", "text": "text"}
+            kind, page, query = None, 1, ""
+            if action == "search":
+                query = arguments
+            else:
+                parts = arguments.lower().split()
+                if parts and parts[0] in aliases:
+                    kind = aliases[parts.pop(0)]
+                if len(parts) > 1 or (parts and not parts[0].isdigit()):
+                    return "Usage: list [all|commands|conversations|text|files] [page]"
+                if parts:
+                    page = int(parts[0])
+            try:
+                result = self.engine.browse_notes(kind, query=query, page=page)
+            except ValueError as exc:
+                return str(exc)
+            if not result["total"]:
+                return "No saved Sticky Notes matching this selection."
+            lines = [f"SAVED STICKY NOTES | Page {page}/{result['pages']} | {result['total']} notes"]
+            lines.extend(f"  {n['number']}. {n['title']} [{n['id']}] ({n['type']})" for n in result["items"])
+            if not result["items"]:
+                lines.append("Page out of range.")
+            lines.append("Use read <title or ID> or replay for interactive browsing.")
+            return "\n".join(lines)
 
         if action == "read":
             if not arguments:
@@ -132,12 +152,12 @@ class StickyNote:
                 if file.is_file():
                     return file.read_text(encoding="utf-8")
                 return f"No Sticky Note named '{arguments}'."
-            except ValueError as exc:
+            except (ValueError, NotImplementedError) as exc:
                 return f"Cannot read Sticky Note: {exc}"
             lines = [
                 f"STICKY NOTE: {note.get('title', arguments)}",
-                f"Start: {(note.get('start') or [note.get('start_coordinate', '?')])[0]}",
-                f"End: {(note.get('after') or [note.get('end_coordinate', '?')])[0]}",
+                f"Start: {note.get('start', note.get('start_coordinate', '?')) if isinstance(note.get('start'), str) else (note.get('start') or [note.get('start_coordinate', '?')])[0]}",
+                f"End: {note.get('end', note.get('end_coordinate', '?')) if isinstance(note.get('end'), str) else (note.get('after') or [note.get('end_coordinate', '?')])[0]}",
                 f"Events: {len(events)}",
                 "",
                 "PATH",
@@ -213,6 +233,15 @@ class StickyNote:
         """Include both coordinates so moves and revisits are visible."""
         if not isinstance(event, dict):
             return f"{index}. {event}"
+        kind = event.get("type", "command")
+        value = event.get("value", "")
+        if kind == "conversation":
+            text = f"{index}. [CONVERSATION @ {event.get('coordinate_before', '?')}]\nUser:\n{value['user']}\n\nAssistant:\n{value['assistant']}"
+            if event.get("attachments"):
+                text += "\nAttachments: " + ", ".join(event["attachments"])
+            return text
+        if kind in ("text", "file"):
+            return f"{index}. [{kind.upper()} @ {event.get('coordinate_before', '?')}] {value}"
         before = event.get("coordinate_before", event.get("coordinate", "?"))
         after = event.get("coordinate_after", before)
         command = event.get("value", "")
@@ -220,10 +249,12 @@ class StickyNote:
         result = " [failed]" if event.get("success") is False else ""
         if event.get("type") == "transition":
             return f"{index}. [META] {command} ({event.get('from')} -> {event.get('to')}) @ [{after}]"
+        if event.get("from_plan"):
+            return f"{index}. [{source}] {command}{result}"
         if "logical_before" in event:
             v = event["logical_before"]
             w = event.get("logical_after", v)
-            return (f"{index}. [{source} virtual:{v[0]} | i={v[1]} | "
+            return (f"{index}. [{source} virtual:{v[0]} | k={v[1]} | "
                     f"f={v[2]} | U={v[3]}] {command} "
                     f"-> [virtual:{w[0]} | U={w[3]}]"
                     f"{result}")

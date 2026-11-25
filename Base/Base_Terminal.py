@@ -8,8 +8,8 @@ from dataclasses import dataclass
 import json
 
 try:
-    from ..utils.counter import Counter
-    from ..utils.data_manager import DataManager
+    from .utils.counter import Counter
+    from .utils.data_manager import DataManager
 except ImportError:  # python main.py from the project root
     from utils.counter import Counter
     from utils.data_manager import DataManager
@@ -177,3 +177,7 @@ class BaseTerminal:
 
     def exit_command(self, arguments=""):
         return "Exiting Base Terminal."
+
+
+if __name__ == "__main__":
+    BaseTerminal().run()
