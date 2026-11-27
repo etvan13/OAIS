@@ -1,3 +1,4 @@
+from history_assertions import steps
 """Regression for portable imaginary-layer navigation + v5/v6 note saving."""
 from pathlib import Path
 import tempfile
@@ -91,18 +92,15 @@ class ImaginaryStackV6Tests(unittest.TestCase):
             note=t.sticky_note.get_note("midway")
             self.assertEqual(note["start"],"11 0 0 0 0 0")
             self.assertEqual(note["end"],"11 0 0 0 0 0")
-            self.assertEqual(note["functions"],[
-                {"f":"k**3","direction":1,"k":2},
-                {"f":"k**3","direction":-1},
-            ])
+            self.assertEqual(note['start_state']['functions'], [{"f":"k**3","direction":1,"k":2}])
             self.assertNotIn("origin",note)
             self.assertEqual(note["blocks"],4)
-            self.assertEqual([step["op"] for step in note["plan"]], ["none", "auto_forward", "turn", "none"])
+            self.assertEqual([step["op"] for step in steps(t.sticky_note, note)], ["none", "auto_forward", "turn", "none"])
             b=dm.get_coordinate_node("11 0 0 0 0 0")["command_blocks"]
             self.assertEqual(len(b),3)
-            self.assertEqual(b[0]["function"],0)
+            self.assertNotIn("function",b[0])
             self.assertNotIn("name",str(note))
-            self.assertEqual(set(note),{"id","title","start","end","start_state","functions","blocks","plan"})
+            self.assertEqual(set(note),{"id","title","start","end","start_state","storage","blocks","end_history"})
             _, events = t.sticky_note.load_path(note["id"])
             self.assertEqual([e['value'] for e in events], ['sticky start', 'one', 'navigator turn', 'sticky stop'])
 
@@ -125,7 +123,7 @@ class ImaginaryStackV6Tests(unittest.TestCase):
                 {"f":"k**2", "k":2,"direction":1}])
             # A BASE ordinary command is +1 even after a manual turn.
             self.assertEqual(note["end"],"34 0 0 0 0 0")
-            self.assertEqual(note["functions"][1],{"f":"k**2","direction":-1})
+            self.assertEqual(steps(t.sticky_note, note)[1]["op"], "turn")
 
     def test_push_during_recording_creates_new_pole_transition(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -139,9 +137,9 @@ class ImaginaryStackV6Tests(unittest.TestCase):
             t.process_command("sticky stop")
             self.assertIn("Saved",t.process_command("sticky save switching").output)
             note=t.sticky_note.get_note("switching")
-            self.assertEqual([a["f"] for a in note["functions"]], ["k","k**3","k**2"])
+            self.assertEqual([a["f"] for a in steps(t.sticky_note,note) if "f" in a], ["k**3","k**2"])
             self.assertEqual([(index, step["op"]) for index,step in
-                              enumerate(note["plan"]) if step["op"] in ("open","push")],
+                              enumerate(steps(t.sticky_note, note)) if step["op"] in ("open","push")],
                              [(2,"open"),(4,"push")])
             self.assertEqual(t.navigator_engine.compact_state()["functions"],[
                 {"f":"k**3","k":1,"direction":1},
@@ -219,7 +217,7 @@ class PortableHistoryAndSafetyTests(unittest.TestCase):
             note=t.sticky_note.get_note("overflow")
             self.assertNotIn("start_universe",note)
             self.assertEqual(note["end_universe"],1)
-            self.assertEqual(note["functions"],[{"f":"k","direction":1}])
+            self.assertEqual(note["start_state"]["functions"],[])
             block=dm.get_coordinate_node("59 59 59 59 59 59")["command_blocks"][0]
             self.assertNotIn("counter_universe",block)
 
@@ -240,11 +238,11 @@ class PortableHistoryAndSafetyTests(unittest.TestCase):
                                  "universe_before":0,"universe_after":0,"success":True})
             t.process_command("sticky stop")
             note=t.sticky_note.save_reference("stationary")
-            self.assertEqual(note["functions"],[{"f":"0","direction":1}])
+            self.assertEqual(note["start_state"]["functions"],[{"f":"0","direction":1,"k":0}])
             self.assertEqual(note["end"],"3 0 0 0 0 0")
             blocks=dm.get_coordinate_node("3 0 0 0 0 0")["command_blocks"]
             self.assertEqual(len(blocks),5)
             self.assertEqual(len({b["universe"] for b in blocks}),5)
             self.assertTrue(all("step" not in b for b in blocks[1:-1])
             )
-            self.assertEqual([blocks[0]['step'], blocks[-1]['step']], [0, 0])
+            self.assertEqual([blocks[0].get('delta',0), blocks[-1].get('delta',0)], [0, 0])

@@ -1,23 +1,15 @@
 """Sticky Note command for OAIS.
 
 The engine caches commands until save, then DataManager stores them at their
-real coordinates. Text files are optional, human-readable exports.
+real coordinates. No separate text exports are generated.
 """
 
-from datetime import datetime, timezone
-from pathlib import Path
-import re
 
 
 class StickyNote:
-    def __init__(self, terminal, save_dir=None):
+    def __init__(self, terminal):
         self.terminal = terminal
         self.engine = terminal.sticky_note
-        self.save_dir = (
-            Path(save_dir)
-            if save_dir is not None
-            else Path(terminal.data_manager.base_dir).parent / "Exports" / "sticky_notes"
-        )
 
     def run(self, arguments=""):
         """Handle one action, or enter the Sticky Note menu without arguments."""
@@ -109,7 +101,7 @@ class StickyNote:
             )
 
         if action == "save":
-            return self.save_text(arguments or "Sticky Note")
+            return self.save_note(arguments or "Sticky Note")
 
         if action == "clear":
             self.engine.stop(clear=True)
@@ -147,10 +139,6 @@ class StickyNote:
             try:
                 note, events = self.engine.load_path(arguments)
             except KeyError:
-                # Older versions saved only a .txt export.
-                file = self.save_dir / (self.filename(arguments) + ".txt")
-                if file.is_file():
-                    return file.read_text(encoding="utf-8")
                 return f"No Sticky Note named '{arguments}'."
             except (ValueError, NotImplementedError) as exc:
                 return f"Cannot read Sticky Note: {exc}"
@@ -168,65 +156,23 @@ class StickyNote:
 
         return "Unknown Sticky Note command. Type 'help'."
 
-    def save_text(self, title):
-        """Commit cached commands to DataManager and export a readable .txt.
-
-        No coordinate writes happen before this method is called. If any
-        coordinate write fails, the engine retains its cache and attempts
-        to remove the partially written coordinate records.
-        """
+    def save_note(self, title):
+        """Commit cached commands to coordinate storage only."""
         was_active = self.engine.active and not self.engine.paused
         if was_active:
-            self.engine.pause()  # fixed snapshot during multi-file commit
-        path = self.engine.get_path()
-        if not path:
+            self.engine.pause()
+        if not self.engine.get_path():
             if was_active:
                 self.engine.resume()
             return "Nothing to save. Start recording and run some commands first."
-
-        file = None
         try:
-            self.save_dir.mkdir(parents=True, exist_ok=True)
-            stem = self.filename(title)
-            file = self.save_dir / f"{stem}.txt"
-            number = 2
-            while file.exists():
-                file = self.save_dir / f"{stem}_{number}.txt"
-                number += 1
-
-            lines = [
-                f"STICKY NOTE: {title}",
-                f"Saved: {datetime.now(timezone.utc).isoformat()}",
-                f"Start: {path[0].get('logical_before', path[0].get('coordinate_before', self.engine.start_coordinate))}",
-                f"End: {path[-1].get('logical_after', path[-1].get('coordinate_after', self.engine.current_coordinate()))}",
-                f"Events: {len(path)}",
-                "",
-                "PATH",
-            ]
-            lines.extend(self.format_event(event, index)
-                         for index, event in enumerate(path, 1))
-            file.write_text("\n".join(lines) + "\n", encoding="utf-8")
-
-            # DataManager is authoritative; the .txt is a convenience export.
             saved = self.engine.save_reference(title=title)
         except (OSError, ValueError, TypeError, RuntimeError) as exc:
-            if file is not None and file.is_file():
-                try:
-                    file.unlink()
-                except OSError:
-                    pass
             if was_active:
                 self.engine.resume()
             return f"Could not save Sticky Note: {exc}. Temporary path retained."
-
         self.engine.stop(clear=True)
-        return (f"Saved '{saved['title']}' to OAIS DataManager "
-                f"and {file}. Temporary path cleared.")
-
-    @staticmethod
-    def filename(title):
-        """Limit titles to safe, local filename characters."""
-        return re.sub(r"[^a-z0-9_-]+", "_", title.strip().lower()).strip("_") or "sticky_note"
+        return f"Saved '{saved['title']}' to OAIS DataManager. Temporary path cleared."
 
     @staticmethod
     def format_event(event, index):

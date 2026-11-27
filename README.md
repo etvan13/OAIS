@@ -8,9 +8,7 @@ Rather than beginning with a large AI model and building an environment around i
 
 The present Python implementation explores how interactions with a program can be represented as traversals through a mathematical coordinate space. Commands, data, navigation functions, and ordered histories can be associated with positions and subsequently inspected or reorganized. The framework is not limited to spacecraft, artificial intelligence, or any particular terminal.
 
-The current implementation supports standalone operation, connection to independent terminals, mathematical navigation, coordinate-based data storage, Sticky Note recording, and read-only Replay. This README describes the v14 architecture.
-
-> OAIS is a research prototype, not spacecraft-qualified control software. Autonomous execution, general OS-level observation, and integrated AI reasoning are future work.
+The current implementation supports standalone operation, connection to independent terminals, mathematical navigation, coordinate-based data storage, Sticky Note recording, and read-only Replay. This README describes the architecture.
 
 ## Why OAIS exists
 

@@ -1,3 +1,5 @@
+from history_assertions import steps
+import json
 """Audit v13 BLAKE2b chain semantics and overlapping stationary note blocks."""
 import tempfile
 import unittest
@@ -36,7 +38,7 @@ class UniverseChainAudit(unittest.TestCase):
             t.process_command('function k**3')
             t.process_command('sticky save zero_moves')
             note = t.sticky_note.get_note('zero_moves')
-            self.assertEqual([e['command'] for e in note['plan']], ['sticky start','function k**2','virtual','function k**3','sticky save zero_moves'])
+            self.assertEqual([e['command'] for e in steps(t.sticky_note,note)], ['sticky start','function k**2','virtual','function k**3','sticky save zero_moves'])
             blocks = dm.get_coordinate_node('0 0 0 0 0 0')['command_blocks']
             self.assertEqual(len(blocks),5)
             self.assertEqual(len({b['universe'] for b in blocks}),5)
@@ -56,8 +58,10 @@ class UniverseChainAudit(unittest.TestCase):
             for i,(command,op,before,after) in enumerate(operations):
                 self.assertEqual(blocks[i]['command'],command)
                 self.assertEqual(blocks[i]['universe'],f'{expected:032x}')
-                expected=evolve_path_universe(expected,before,after,
-                                              f'event:{i}:{command}:{op}')
+                payload = {k:v for k,v in blocks[i].items() if k != 'universe'}
+                encoded=json.dumps([i,payload],sort_keys=True,ensure_ascii=False,separators=(',',':'),allow_nan=False)
+                expected=evolve_path_universe(expected,before,after,'command-v1:'+encoded)
+            self.assertEqual(note['end_history'],f'{expected:032x}')
 
     def test_multiple_notes_same_coordinate_do_not_overwrite_each_other(self):
         with tempfile.TemporaryDirectory() as root:

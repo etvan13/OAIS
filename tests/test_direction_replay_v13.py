@@ -1,3 +1,4 @@
+from history_assertions import steps
 """v13 contracts: source-command sign and terminal-private, read-only Replay."""
 import json
 from pathlib import Path
@@ -77,7 +78,7 @@ class DirectionReplayV13Tests(unittest.TestCase):
             self.assertEqual(term.navigator_engine.compact_state()['functions'], [
                 {'f':'k**3','k':2,'direction':-1}])
 
-    def test_replay_list_choose_and_private_plan_are_read_only(self):
+    def test_replay_list_choose_and_coordinate_history_is_read_only(self):
         with tempfile.TemporaryDirectory() as folder:
             term=self.make(folder);term.attach_host('0 0 0 0 0 0')
             term.process_command('function k**2')
@@ -88,14 +89,14 @@ class DirectionReplayV13Tests(unittest.TestCase):
             term.process_command('sticky stop')
             term.process_command('sticky save quadratic_roundtrip')
             note=term.sticky_note.get_note('quadratic_roundtrip')
-            self.assertEqual([e['command'] for e in note['plan']], [
+            self.assertEqual([e['command'] for e in steps(term.sticky_note, note)], [
                 'sticky start','help','backwards','forward','function k**3','help','sticky stop'])
-            self.assertEqual([e['op'] for e in note['plan']], [
+            self.assertEqual([e['op'] for e in steps(term.sticky_note, note)], [
                 'none','auto_forward','auto_back','auto_forward','push','auto_forward','none'])
-            # This is an entirely terminal-private view, without shared
-            # command blocks being loaded to provide order or content.
-            term.data_manager.load_command_block = lambda *args, **kwargs: (_ for _ in ()).throw(
-                AssertionError('Replay should not read public blocks'))
+            # Browsing must not read coordinate blocks; selecting a note must.
+            from unittest.mock import patch
+            with patch.object(term.data_manager, 'load_command_block', side_effect=AssertionError('unexpected coordinate read')):
+                self.assertIn('quadratic_roundtrip', term.process_command('replay list').output)
             term.process_command('sticky start')
             before_recording=term.sticky_note.get_path()
             before_nav=term.navigator_engine.snapshot()
@@ -111,7 +112,7 @@ class DirectionReplayV13Tests(unittest.TestCase):
             self.assertEqual(term.navigator_engine.snapshot(),before_nav)
             self.assertIn('0/4',term.process_command('replay reset').output)
             self.assertIn('1. [BASE] help',term.process_command('replay next').output)
-            self.assertIn('STICKY NOTE TRACE',term.process_command('replay trace quadratic_roundtrip').output)
+            self.assertIn('COORDINATE TRACE',term.process_command('replay trace quadratic_roundtrip').output)
             self.assertEqual(term.navigator_engine.snapshot(), before_nav)
             self.assertEqual(term.sticky_note.get_path()[:len(before_recording)], before_recording)
             self.assertEqual([e['value'] for e in term.sticky_note.get_path()[len(before_recording):]],

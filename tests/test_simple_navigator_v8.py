@@ -1,3 +1,4 @@
+from history_assertions import steps
 """Small UI and automatic reverse-tick regressions for v8."""
 import io
 import tempfile
@@ -64,6 +65,6 @@ class SimpleNavigatorTests(unittest.TestCase):
             t.process_command('sticky stop')
             note=t.sticky_note.save_reference('reverse')
             self.assertEqual(note['end'],'3 0 0 0 0 0')
-            self.assertIn(-1,[f['direction'] for f in note['functions']])
+            self.assertIn('auto_back',[f['op'] for f in steps(t.sticky_note,note)])
 
 if __name__ == '__main__':unittest.main()

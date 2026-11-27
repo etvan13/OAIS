@@ -660,7 +660,7 @@ class DataManager:
 
     def save_block(self, coordinate, block_type, content, universe, *,
                            counter_universe=0, function=None, step=None,
-                           failed=False, source=None, attachments=None):
+                           failed=False, source=None, attachments=None, traversal=None):
         bucket, field = self.BLOCK_TYPES[self._block_type(block_type)]
         if block_type in ("command", "text") and not isinstance(content, str):
             raise ValueError("Command and text blocks require text.")
@@ -669,6 +669,12 @@ class DataManager:
         json.dumps(content, allow_nan=False)
         if attachments is not None and (not isinstance(attachments, list) or not all(isinstance(x, str) for x in attachments)):
             raise ValueError("Attachments must be a list of strings.")
+        if traversal is not None:
+            if block_type != "command" or not isinstance(traversal, dict):
+                raise ValueError("Traversal metadata is only valid for command blocks.")
+            if set(traversal) - {"op", "f", "anchor", "target", "target_universe", "delta", "source_origin", "transition"}:
+                raise ValueError("Unknown command traversal field.")
+            json.dumps(traversal, allow_nan=False)
         coordinate = self.coordinate_string(coordinate)
         if not isinstance(universe, str) or len(universe) != 32 or any(
                 c not in "0123456789abcdef" for c in universe):
@@ -703,6 +709,8 @@ class DataManager:
             block["source"] = str(source)
         if attachments:
             block["attachments"] = deepcopy(attachments)
+        if traversal:
+            block.update(deepcopy(traversal))
         blocks.append(block)
         self._write_json(path, data)
         return deepcopy(block)
@@ -747,10 +755,10 @@ class DataManager:
 
     def save_command_block(self, coordinate, command, universe, *,
                            counter_universe=0, function=None, step=None,
-                           failed=False, source=None):
+                           failed=False, source=None, traversal=None):
         return self.save_block(coordinate, "command", str(command), universe,
                                counter_universe=counter_universe, function=function,
-                               step=step, failed=failed, source=source)
+                               step=step, failed=failed, source=source, traversal=traversal)
 
     def load_command_block(self, coordinate, universe, *, counter_universe=0):
         return self.load_block(coordinate, "command", universe, counter_universe=counter_universe)

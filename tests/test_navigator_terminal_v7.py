@@ -1,3 +1,4 @@
+from history_assertions import steps
 """v7: interactive function terminal, independent counters, k storage."""
 from pathlib import Path
 import os
@@ -123,8 +124,8 @@ class NavigatorTerminalV7Tests(unittest.TestCase):
             self.base_tick(t)
             t.process_command('sticky stop')
             note=t.sticky_note.save_reference('menu function note')
-            self.assertEqual([slot['f'] for slot in note['functions']],['k','k**3'])
-            self.assertEqual(note['plan'][1]['op'],'open')
+            self.assertEqual([slot['f'] for slot in steps(t.sticky_note,note) if 'f' in slot],['k**3'])
+            self.assertEqual(steps(t.sticky_note,note)[1]['op'],'open')
             self.assertEqual(note['start'],'3 0 0 0 0 0')
             self.assertEqual(note['end'],'11 0 0 0 0 0')
 

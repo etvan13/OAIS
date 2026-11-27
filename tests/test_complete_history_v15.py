@@ -10,7 +10,8 @@ from oais.Commands.Replay.ReplayEngine import ReplayEngine
 from oais.Commands.Navigator.Navigator import Navigator
 from oais.utils.counter import Counter
 from oais.utils.data_manager import DataManager
-import test_storage_preplay_v11
+from history_assertions import steps
+from oais.Commands.StickyNote.StickyNoteEngine import StickyNoteEngine
 
 
 class CompleteHistoryTests(unittest.TestCase):
@@ -41,15 +42,15 @@ class CompleteHistoryTests(unittest.TestCase):
             note=t.sticky_note.get_note('complete')
             expected=['sticky start','function k**2','virtual','navigator status','help',
                       'function k**3','greetings','replay list','sticky save complete']
-            self.assertEqual([e['command'] for e in note['plan']],expected)
+            self.assertEqual([e['command'] for e in steps(t.sticky_note, note)],expected)
             blocks=[]
             for path in dm.coordinate_dir.rglob('*.json'):
                 for node in json.loads(path.read_text()).values():
                     blocks.extend(node.get('command_blocks',[]))
             self.assertCountEqual([b['command'] for b in blocks],expected)
             self.assertEqual(len({b['universe'] for b in blocks}),len(expected))
-            self.assertTrue(all(set(b)<= {'command','universe','function','counter_universe','step','failed','source'} for b in blocks))
-            self.assertEqual(test_storage_preplay_v11.StorageReadinessV11Tests.reconstruct_math_from_private_note(note)['real'],note['end'])
+            self.assertTrue(all(set(b)<= {'command','universe','counter_universe','failed','source','op','f','delta','anchor','target','target_universe','source_origin','transition'} for b in blocks))
+            self.assertEqual(t.sticky_note.load_path(note['id'])[1][-1]['coordinate_after'],note['end'])
             before=t.navigator_engine.snapshot(); count=t.counter.get_counters()
             out=t.process_command('replay complete').output
             self.assertIn('1. [BASE] help',out); self.assertIn('2. [BASE] greetings',out)
@@ -75,7 +76,7 @@ class CompleteHistoryTests(unittest.TestCase):
             self.assertFalse(t.sticky_note.get_path()[-1]['success'])
             self.host(t,'greetings')
             self.assertIn('Saved',t.process_command('sticky save retry').output)
-            plan=t.sticky_note.get_note('retry')['plan']
+            plan=steps(t.sticky_note, t.sticky_note.get_note('retry'))
             self.assertTrue(plan[2]['failed']);self.assertEqual(plan[2]['command'],'sticky save retry')
             self.assertNotIn('failed',plan[-1]);self.assertEqual(plan[-1]['command'],'sticky save retry')
             self.assertEqual(len(plan),5)
@@ -86,7 +87,7 @@ class CompleteHistoryTests(unittest.TestCase):
             t.process_command('sticky stop');self.host(t,'echo outside')
             self.assertIn('Saved',t.process_command('sticky save stopped').output)
             note=t.sticky_note.get_note('stopped')
-            self.assertEqual([e['command'] for e in note['plan']],['sticky start','ping','sticky stop'])
+            self.assertEqual([e['command'] for e in steps(t.sticky_note, note)],['sticky start','ping','sticky stop'])
             self.assertEqual(note['end'],'1 0 0 0 0 0')
             self.assertIn('[COUNTERLESS] ping',t.process_command('replay stopped').output)
 
@@ -101,7 +102,7 @@ class CompleteHistoryTests(unittest.TestCase):
             t.process_command('sticky start'); choices=iter(['view host','load standalone','replay all','exit'])
             Replay(t).run(input_func=lambda _:next(choices),print_func=lambda _:None)
             t.process_command('sticky save menu')
-            self.assertEqual([e['command'] for e in t.sticky_note.get_note('menu')['plan']],
+            self.assertEqual([e['command'] for e in steps(t.sticky_note, t.sticky_note.get_note('menu'))],
                              ['sticky start','replay view host','replay load standalone','replay all','replay exit','sticky save menu'])
 
 # Verify actual connected processes, the interactive Replay menu and scrollback.
@@ -130,7 +131,7 @@ class CompleteHistoryPTYTests(unittest.TestCase):
                 send('oais','OAIS > ');send('navigator status','OAIS > ');send('return')
                 send('help');send('oais sticky save mixed')
                 note=json.loads((data/'terminal_data/base/sticky_notes_commands.json').read_text())['notes'][-1]
-                self.assertEqual([e['command'] for e in note['plan']],['sticky start','function k**2','virtual','oais','navigator status','return','help','sticky save mixed'])
+                self.assertEqual([e['command'] for e in steps(StickyNoteEngine(data_manager=DataManager(base_dir=data), terminal_id='base'), note)],['sticky start','function k**2','virtual','oais','navigator status','return','help','sticky save mixed'])
                 state=(data/'virtual_coordinate.json').read_bytes()
                 send('oais replay','Replay> ')
                 out=send('mixed','Replay> ');self.assertIn('1. [BASE] help',out);self.assertNotIn('[OAIS]',out)

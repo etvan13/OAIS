@@ -253,7 +253,7 @@ class LogicalStickyNoteTests(unittest.TestCase):
             base(term)
             real_save = dm.save_terminal_data
             def failing_save(terminal_id, collection, data):
-                if collection == 'sticky_notes_commands':
+                if collection in ('sticky_notes', 'sticky_notes_commands'):
                     raise OSError('synthetic failure')
                 return real_save(terminal_id,collection,data)
             dm.save_terminal_data = failing_save

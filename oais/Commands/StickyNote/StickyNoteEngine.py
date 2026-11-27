@@ -11,12 +11,12 @@ import uuid
 try:
     from ...utils.counter import Counter
     from ...utils.data_manager import DataManager
-    from ...utils.virtual_counter import VirtualCounter, seed_path_universe, evolve_path_universe, address_to_integer
+    from ...utils.virtual_counter import VirtualCounter, seed_path_universe, evolve_path_universe, address_to_integer, integer_to_address
     from ..Navigator.NavigatorEngine import NavigatorEngine, expression_for_definition, evaluate_offset
 except ImportError:  # python main.py from the project root
     from utils.counter import Counter
     from utils.data_manager import DataManager
-    from utils.virtual_counter import VirtualCounter, seed_path_universe, evolve_path_universe, address_to_integer
+    from utils.virtual_counter import VirtualCounter, seed_path_universe, evolve_path_universe, address_to_integer, integer_to_address
     from Commands.Navigator.NavigatorEngine import NavigatorEngine, expression_for_definition, evaluate_offset
 
 
@@ -596,14 +596,78 @@ class StickyNoteEngine:
                  for layer in layers]
         return [v["coordinate"], stack, stack[-1]["f"] if stack else "k"]
 
-    def _save_compact_logical_reference(self, title, storage_coordinate=None):
-        """Write existing compact public command blocks and a private v11 plan.
+    @staticmethod
+    def _command_traversal(event, snapshot):
+        """Store only local changes; function definitions appear at activation."""
+        nav = event.get("navigation", {"op": "none"})
+        op = nav.get("op", "none")
+        fields = {"op": op} if op != "none" else {}
+        for key in ("f", "anchor", "target", "counter_universe"):
+            if key in nav:
+                fields[key] = deepcopy(nav[key])
+        if event.get("follow_update") and event.get("host_after") is not None:
+            target = address_to_integer(event["host_after"], event.get("host_universe_after", 0))
+            host = snapshot["virtual"].get("host")
+            if host is None:
+                # Only needed when the initial source position is unknown.
+                fields["source_origin"] = target
+            else:
+                fields["delta"] = target - address_to_integer(host["coordinate"], host["counter_universe"])
+        if event["type"] == "transition":
+            fields["transition"] = {"from": event.get("from"), "to": event.get("to")}
+        return fields
 
-        The terminal note owns the complete starting mathematical context and
-        ordered event plan; public coordinate blocks contain only compact
-        command data/history keys and optional selector indexes. Replay is
-        intentionally separate and is not invoked by saving a note.
-        """
+    def _advance_command_block(self, navigator, block, history, *, live_navigation=None):
+        """Apply local mathematical operations, never dispatch command text."""
+        op = block.get("op", "none")
+        nav = {"op": op}
+        for key in ("f", "anchor", "target", "counter_universe"):
+            # counter_universe on the block is its storage namespace, not the
+            # target namespace; stored transition targets use target_universe below.
+            if key != "counter_universe" and key in block:
+                nav[key] = block[key]
+        if "target_universe" in block:
+            nav["counter_universe"] = block["target_universe"]
+        if op in ("open", "push", "child"):
+            if live_navigation is not None:
+                nav["ref"] = live_navigation["ref"]
+                if "seed" in live_navigation:
+                    nav["seed"] = live_navigation["seed"]
+            else:
+                # Runtime activation references are not part of the portable hash.
+                nav["ref"] = "pi_" + hashlib.blake2b(
+                    f"{history:032x}".encode(), digest_size=8,
+                    person=b"OAISCmd-v16").hexdigest()
+                if op == "open":
+                    nav["seed"] = f"{history:032x}"
+        if "delta" in block or "source_origin" in block:
+            host = navigator.virtual.snapshot().get("host")
+            if "source_origin" in block:
+                target = block["source_origin"]
+            else:
+                if host is None:
+                    raise ValueError("Command source delta has no starting position.")
+                target = address_to_integer(host["coordinate"], host["counter_universe"]) + block["delta"]
+            coordinate, universe = integer_to_address(target)
+            navigator.virtual.observe_host(coordinate, universe)
+        # FREE/held coordinates remain stationary on op=none. Resumption of
+        # source following is represented by the explicit sync operation.
+        self._advance_recorded_navigation(navigator, {"navigation": nav})
+
+    @classmethod
+    def _command_history_next(cls, history, before, after, block, index):
+        # Bind local content (including source/failure/operation) into the chain.
+        # Exclude the incoming universe key itself; it is the hash input.
+        payload = {k: v for k, v in block.items() if k != "universe"}
+        encoded = json.dumps([index, payload], sort_keys=True, ensure_ascii=False,
+                             separators=(",", ":"), allow_nan=False)
+        return evolve_path_universe(history, cls._portable_signature(before),
+            cls._portable_signature(after), "command-v1:" + encoded,
+            counter_universe_before=before["virtual"]["counter_universe"],
+            counter_universe_after=after["virtual"]["counter_universe"])
+
+    def _save_compact_logical_reference(self, title, storage_coordinate=None):
+        """Save a minimal note; all command payloads live at coordinates."""
         if self.navigation_start is None or self.note_id is None:
             raise ValueError("Missing logical recording origin or note identity.")
         navigator = NavigatorEngine(VirtualCounter())
@@ -615,143 +679,50 @@ class StickyNoteEngine:
             raise ValueError("Logical Sticky Note must be anchored at its starting coordinate.")
         history = seed_path_universe(start[0], self.note_id, counter_universe=overflow_start)
         written = []
-        functions = []
-        plan = []  # Terminal-private, ordered, self-contained replay input.
-        lookup = {}
-        previous_selector = None
-        initial_layers = deepcopy(self.navigation_start["layers"])
-        initial_slot = None
-        if initial_layers:
-            top = initial_layers[-1]
-            initial_slot = (expression_for_definition(top["definition"]),
-                            -1 if top["leg"] == "toward" else 1)
         try:
             for index, event in enumerate(self.path):
-                before = self.data_manager.validate_logical_address(
-                    event["logical_before"], direction=event["logical_direction_before"])
-                after = self.data_manager.validate_logical_address(
-                    event["logical_after"], direction=event["logical_direction_after"])
+                before = self.data_manager.validate_logical_address(event["logical_before"], direction=event["logical_direction_before"])
+                after = self.data_manager.validate_logical_address(event["logical_after"], direction=event["logical_direction_after"])
                 before_u = int(event["logical_counter_universe_before"])
                 after_u = int(event["logical_counter_universe_after"])
-                self._check_cursor(navigator, before, before_u,
-                                   event["logical_direction_before"])
-                nav = event.get("navigation", {"op": "none"})
-                op = nav.get("op", "none")
+                self._check_cursor(navigator, before, before_u, event["logical_direction_before"])
                 before_snapshot = navigator.snapshot()
-                before_layers = deepcopy(before_snapshot["layers"])
-                simulation = {"navigation": nav,
-                              "host_before": event.get("coordinate_before"),
-                              "host_universe_before": event.get("universe_before", 0),
-                              "host_after": event.get("host_after"),
-                              "host_universe_after": event.get("host_universe_after", 0),
-                              "follow_update": event.get("follow_update", False)}
-                self._advance_recorded_navigation(navigator, simulation)
-                self._check_cursor(navigator, after, after_u,
-                                   event["logical_direction_after"])
+                fields = self._command_traversal(event, before_snapshot)
+                if "counter_universe" in fields:
+                    target_u = fields.pop("counter_universe")
+                    if target_u:
+                        fields["target_universe"] = target_u
+                self._advance_command_block(navigator, fields, history,
+                    live_navigation=event.get("navigation"))
+                self._check_cursor(navigator, after, after_u, event["logical_direction_after"])
                 after_snapshot = navigator.snapshot()
-                after_layers = deepcopy(after_snapshot["layers"])
-                if op in ("open", "push", "child"):
-                    # Newly established pole, k=0 except historical child().
-                    active = after_layers[-1] if after_layers else None
-                    direction = 1
-                elif before_layers:
-                    # Even when the final return step POPS its layer, that
-                    # command still references the function it just traversed.
-                    # Reversing an empty child spends its tick on its parent.
-                    active = (before_layers[-2] if op == "turn" and
-                              before_layers[-1]["k"] == 0 and
-                              len(before_layers) > 1 else before_layers[-1])
-                    direction = -1 if (op in ("turn", "toward") or op == "auto_back" or
-                                       (op == "auto" and active["leg"] == "toward")) else 1
-                else:
-                    active = None
-                    delta = (address_to_integer(after[0], after_u) -
-                             address_to_integer(before[0], before_u))
-                    direction = -1 if delta < 0 else 1
-                expression = (expression_for_definition(active["definition"])
-                              if active is not None else "k")
-                signature = (expression, direction)
-                if signature not in lookup:
-                    selector = len(functions)
-                    lookup[signature] = selector
-                    function = {"f": expression, "direction": direction}
-                    # Common case: recording starts partway through ONE pole.
-                    # The real pole is start - [g(k)-g(0)].
-                    if (index == 0 and len(initial_layers) == 1
-                            and signature == initial_slot and initial_layers[0]["k"]):
-                        function["k"] = initial_layers[0]["k"]
-                    functions.append(function)
-                selector = lookup[signature]
-                distance = (address_to_integer(after[0], after_u) -
-                            address_to_integer(before[0], before_u))
-                if active is not None:
-                    step = (1 if before[1] != after[1] and op not in
-                            ("open", "push", "pause", "resume", "hold") else 0)
-                else:
-                    step = (0 if op in ("open", "push", "pause", "resume", "hold", "sync")
-                            else abs(distance))
-                # Unlike public coordinate blocks, the private terminal note
-                # owns the ordered command plan. Function selection, source
-                # movement, and control transitions are explicit so the future
-                # ReplayEngine never has to guess an event order or look up a
-                # pi_ activation ID at the pole. The plan is compact: no
-                # duplicated per-step virtual coordinate is necessary.
-                item = {"command": str(event.get("value", "")),
-                        "source": event.get("source", "base"), "op": op}
-                if event.get("success") is False:
-                    item["failed"] = True
-                host_before = event.get("coordinate_before")
-                host_after = event.get("coordinate_after")
-                if host_before is not None and host_after is not None:
-                    source_delta = (address_to_integer(
-                        host_after, int(event.get("universe_after", 0))) -
-                        address_to_integer(host_before, int(event.get("universe_before", 0))))
-                    if source_delta:
-                        item["delta"] = source_delta
-                if op in ("open", "push", "child"):
-                    item["f"] = expression_for_definition(after_layers[-1]["definition"])
-                    if op == "open" and nav.get("anchor") is not None:
-                        item["anchor"] = nav["anchor"]
-                        if nav.get("counter_universe"):
-                            item["anchor_universes"] = nav["counter_universe"]
-                elif op == "sync":
-                    item["target"] = after[0]
-                    if after_u:
-                        item["target_universes"] = after_u
-                plan.append(item)
                 block = self.data_manager.save_command_block(
                     before[0], event.get("value", ""), f"{history:032x}",
-                    counter_universe=before_u,
-                    function=selector if selector != previous_selector else None,
-                    step=step, failed=event.get("success") is False,
-                    source=event.get("source", "base"))
+                    counter_universe=before_u, failed=event.get("success") is False,
+                    source=event.get("source", "base"), traversal=fields)
                 written.append((before[0], block["universe"], before_u))
-                previous_selector = selector
-                history = evolve_path_universe(
-                    history, self._portable_signature(before_snapshot),
-                    self._portable_signature(after_snapshot),
-                    f"event:{index}:{event.get('value', '')}:{op}",
-                    counter_universe_before=before_u,
-                    counter_universe_after=after_u)
-            last = self.path[-1]
-            end = self.data_manager.validate_logical_address(last["logical_after"])
-            note = {"id": self.note_id, "title": str(title),
-                    "start": start[0], "end": end[0],
-                    "start_state": deepcopy(self.navigation_context_start or
-                        NavigatorEngine.portable_state(self.navigation_start)),
-                    # Preserved catalog for the already-stored command-block
-                    # function selectors. No note title/history/plan is public.
-                    "functions": functions,
-                    "blocks": len(self.path),
-                    "plan": plan}
-            if (note["start_state"]["coordinate"] != start[0] or
-                    note["start_state"]["universes"] != overflow_start):
+                history = self._command_history_next(history, before_snapshot, after_snapshot, block, index)
+            end = self.data_manager.validate_logical_address(self.path[-1]["logical_after"])
+            context = deepcopy(self.navigation_context_start or NavigatorEngine.portable_state(self.navigation_start))
+            context.pop("coordinate_list", None)
+            # Preserve an observed source even when a standalone engine did not
+            # provide a terminal-specific portable context.
+            host = self.navigation_start["virtual"].get("host")
+            if host is not None:
+                context["source_coordinate"] = host["coordinate"]
+                context["source_universes"] = host["counter_universe"]
+            note = {"id": self.note_id, "title": str(title), "storage": "functional_commands_v1",
+                    "start": start[0], "end": end[0], "blocks": len(self.path),
+                    "start_state": context, "end_history": f"{history:032x}"}
+            if context["coordinate"] != start[0] or context["universes"] != overflow_start:
                 raise ValueError("Recorded start differs from the Sticky Note navigation origin.")
             if overflow_start:
                 note["start_universe"] = overflow_start
-            end_u = int(last["logical_counter_universe_after"])
+            end_u = int(self.path[-1]["logical_counter_universe_after"])
             if end_u:
                 note["end_universe"] = end_u
+            # Verify coordinate-backed reconstruction before publishing the note.
+            self._load_command_path(note)
             collection = self.data_manager.load_terminal_data(self.terminal_id, "sticky_notes_commands")
             notes = collection.setdefault("notes", [])
             if not isinstance(notes, list):
@@ -759,17 +730,63 @@ class StickyNoteEngine:
             if any(isinstance(n, dict) and n.get("id") == self.note_id for n in notes):
                 raise ValueError("Sticky Note ID collision.")
             notes.append(note)
-            # Version 3 notes have self-contained replay plans. Existing v2
-            # notes remain present/readable and are never silently migrated.
-            collection["version"] = 3
+            collection["version"] = 4
             collection.pop("terminal_id", None)
             self.data_manager.save_terminal_data(self.terminal_id, "sticky_notes_commands", collection)
             return deepcopy(note)
         except Exception:
             for coordinate, universe, counter_universe in reversed(written):
-                self.data_manager.delete_command_block(
-                    coordinate, universe, counter_universe=counter_universe)
+                self.data_manager.delete_command_block(coordinate, universe, counter_universe=counter_universe)
             raise
+
+    def _load_command_path(self, note):
+        """Derive every next lookup from the previous block and pure Navigator."""
+        count = note.get("blocks")
+        if type(count) is not int or not 0 < count <= 1000000:
+            raise ValueError("Invalid command path block count.")
+        navigator = NavigatorEngine(VirtualCounter())
+        navigator.restore_portable(note["start_state"])
+        origin = navigator.virtual.snapshot()
+        if (origin["coordinate"], origin["counter_universe"]) != (note["start"], note.get("start_universe", 0)):
+            raise ValueError("Command path origin is inconsistent.")
+        history = seed_path_universe(note["start"], note["id"], counter_universe=origin["counter_universe"])
+        events = []
+        for index in range(count):
+            before = navigator.snapshot()
+            v = before["virtual"]
+            try:
+                block = self.data_manager.load_command_block(v["coordinate"], f"{history:032x}", counter_universe=v["counter_universe"])
+            except KeyError as exc:
+                raise ValueError(f"Missing or ambiguous command block at step {index + 1}: {v['coordinate']}") from exc
+            if not isinstance(block.get("command"), str):
+                raise ValueError("Invalid command block.")
+            incoming = history
+            self._advance_command_block(navigator, block, history)
+            after = navigator.snapshot()
+            av = after["virtual"]
+            history = self._command_history_next(history, before, after, block, index)
+            nav = {"op": block.get("op", "none")}
+            for key in ("f", "anchor", "target", "delta", "target_universe"):
+                if key in block:
+                    nav[key] = block[key]
+            event = {"type": "transition" if "transition" in block else "command", "value": block["command"],
+                     "source": block.get("source", "base"), "success": not block.get("failed", False),
+                     "sequence": index, "coordinate_before": v["coordinate"], "coordinate_after": av["coordinate"],
+                     "universe_before": v["counter_universe"], "universe_after": av["counter_universe"],
+                     "logical_before": [v["coordinate"], v["imaginary"], v["function"], incoming],
+                     "logical_after": [av["coordinate"], av["imaginary"], av["function"], history],
+                     "logical_counter_universe_before": v["counter_universe"],
+                     "logical_counter_universe_after": av["counter_universe"],
+                     "logical_direction_before": v["direction"], "logical_direction_after": av["direction"],
+                     "navigation": nav}
+            if "transition" in block:
+                event.update(block["transition"])
+            events.append(event)
+        final = navigator.virtual.snapshot()
+        if (final["coordinate"], final["counter_universe"], f"{history:032x}") != (
+                note["end"], note.get("end_universe", 0), note["end_history"]):
+            raise ValueError("Command path endpoint or history does not match.")
+        return events
 
     def _save_logical_reference(self, title, storage_coordinate=None):
         """Commit event-local records; note at entry carries one lookup seed.
@@ -1069,6 +1086,8 @@ class StickyNoteEngine:
     def load_path(self, identifier, block_type=None, *, include_legacy=False):
         """Reconstruct one saved path; coordinate-only legacy lookup is opt-in."""
         note = self.get_note(identifier, block_type=block_type, include_legacy=include_legacy)
+        if note.get("storage") == "functional_commands_v1":
+            return note, self._load_command_path(note)
         if note.get("storage") == "functional_data_v1":
             return note, self._load_data_path(note)
         if isinstance(note.get("plan"), list):

@@ -109,7 +109,7 @@ class ReplayEngine:
             raise ValueError("No replay loaded. Use 'replay load <title>'.")
 
     def visible_events(self):
-        """Filter presentation only; the full ordered plan remains intact."""
+        """Filter presentation only; the full reconstructed history remains intact."""
         return [e for e in self.events if self.view == "full" or
                 e.get("type", "command") not in ("command", "transition") or
                 e.get("source", "oais").lower() not in ("oais", "meta")]
@@ -131,7 +131,7 @@ class ReplayEngine:
                 f"{len(self.events)} total | {source}, read-only")
 
     @staticmethod
-    def format_step(event, index):
+    def format_step(event, index, *, detail=True):
         kind = event.get("type", "command")
         if kind == "conversation":
             value = event["value"]
@@ -147,7 +147,7 @@ class ReplayEngine:
         source = event.get('source', 'oais').upper()
         command = event.get('value', '')
         flag = ' [failed]' if event.get('success') is False else ''
-        if event.get("from_plan"):
+        if not detail or event.get("from_plan"):
             return f"{index}. [{source}] {command}{flag}"
         if before is not None and after is not None:
             op = event.get('navigation', {}).get('op', 'none')
@@ -166,7 +166,8 @@ class ReplayEngine:
             raise ValueError("Step count must be a positive integer.")
         events = self.visible_events()
         end = min(len(events), self.cursor + count)
-        lines = [self.format_step(events[i], i + 1)
+        lines = [self.format_step(events[i], i + 1,
+                                  detail=self.note.get("storage") != "functional_commands_v1")
                  for i in range(self.cursor, end)]
         self.cursor = end
         if not events:

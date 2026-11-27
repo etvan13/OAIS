@@ -1,3 +1,4 @@
+from history_assertions import steps
 """v12: no pole metadata in shared coordinates; CLI alias and nested private note."""
 import json
 from pathlib import Path
@@ -79,7 +80,7 @@ class FunctionNestingV12Tests(unittest.TestCase):
             self.assertEqual(t.navigation_context()['coordinate'], before['coordinate'])
             self.assertEqual(t.data_manager.list_objects('pole_function'), [])
 
-    def test_private_note_can_reconstruct_nested_function_alias_with_no_poles(self):
+    def test_coordinate_note_can_reconstruct_nested_function_alias_with_no_poles(self):
         with tempfile.TemporaryDirectory() as folder:
             t = self.make(folder)
             t.attach_host('0 0 0 0 0 0')
@@ -97,15 +98,15 @@ class FunctionNestingV12Tests(unittest.TestCase):
             self.assertEqual(note['start'], '9 0 0 0 0 0')
             self.assertEqual(note['end'], '4 0 0 0 0 0')
             self.assertEqual(note['start_state']['functions'], [{'f':'k**2', 'k':3, 'direction':1}])
-            self.assertEqual(note['plan'][1]['command'], 'function k**3')
-            self.assertEqual(note['plan'][1]['op'], 'push')
-            self.assertEqual(note['plan'][1]['f'], 'k**3')
+            self.assertEqual(steps(t.sticky_note, note)[1]['command'], 'function k**3')
+            self.assertEqual(steps(t.sticky_note, note)[1]['op'], 'push')
+            self.assertEqual(steps(t.sticky_note, note)[1]['f'], 'k**3')
             self.assertEqual(t.data_manager.list_objects('pole_function'), [])
-            saved = t.data_manager.load_terminal_data('base', 'sticky_notes_commands')['notes'][-1]
+            saved = t.data_manager.load_terminal_data('base', 'sticky_notes')['notes'][-1]
             self.assertEqual(saved, note)
-            reconstructed = test_storage_preplay_v11.StorageReadinessV11Tests.reconstruct_math_from_private_note(saved)
-            self.assertEqual(reconstructed['real'], note['end'])
-            self.assertEqual(reconstructed['functions'], [{'f':'k**2','k':2,'direction':-1}])
+            _, reconstructed = t.sticky_note.load_path(saved['id'])
+            self.assertEqual(reconstructed[-1]['coordinate_after'], note['end'])
+            self.assertEqual([(layer['step'],layer['leg']) for layer in reconstructed[-1]['logical_after'][1]],[(2,'toward')])
             files = list(t.data_manager.coordinate_dir.rglob('*.json'))
             self.assertTrue(files)
             for path in files:
@@ -113,7 +114,7 @@ class FunctionNestingV12Tests(unittest.TestCase):
                 for node in payload.values():
                     self.assertNotIn('objects', node)
                     for block in node.get('command_blocks', []):
-                        self.assertEqual(set(block).intersection({'definition','pole_function','f','k','plan','title'}), set())
+                        self.assertEqual(set(block).intersection({'definition','pole_function','k','plan','title'}), set())
 
 
 if __name__ == '__main__':

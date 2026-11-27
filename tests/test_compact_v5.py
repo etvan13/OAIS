@@ -37,16 +37,16 @@ class CompactV5Tests(unittest.TestCase):
                 self.event(t, text, move, status)
             self.assertIn('Saved ',t.process_command('sticky save test_new1').output)
             note=t.sticky_note.get_note('test_new1')
-            self.assertEqual(set(note), {'id', 'title', 'start', 'end', 'start_state', 'functions', 'blocks', 'plan'})
-            self.assertEqual([f['direction'] for f in note['functions']],[1,-1])
+            self.assertEqual(set(note), {'id', 'title', 'start', 'end', 'start_state', 'blocks', 'storage', 'end_history'})
+            self.assertNotIn('functions', note)
             self.assertEqual(note['blocks'],7)
             self.assertEqual(note['end'],'3 0 0 0 0 0')
             nodes={str(i)+' 0 0 0 0 0':dm.get_coordinate_node(str(i)+' 0 0 0 0 0') for i in range(4)}
             blocks=[b for node in nodes.values() for b in node['command_blocks']]
             self.assertEqual(len(blocks),7)
             self.assertEqual(len({b['universe'] for b in blocks}),7)
-            self.assertEqual([(b['command'],b.get('function')) for b in blocks],
-                [('sticky start',0),('hello',None),('forwards',None),('test',0),('backwards',1),('hmm',None),('sticky save test_new1',None)])
+            self.assertEqual([(b['command'],b.get('delta')) for b in blocks],
+                [('sticky start',None),('hello',1),('forwards',1),('test',1),('backwards',-1),('hmm',1),('sticky save test_new1',None)])
             self.assertTrue(all('address' not in b and 'navigation' not in b and 'id' not in b for b in blocks))
             self.assertFalse(any('logical_command' in node.get('objects',{}) for node in nodes.values()))
             self.assertEqual(dm.load_command_block('2 0 0 0 0 0', blocks[4]['universe'])['command'], 'backwards')
@@ -61,7 +61,7 @@ class CompactV5Tests(unittest.TestCase):
             self.assertIn('Saved ',t.process_command('sticky save paused').output)
             blocks=dm.get_coordinate_node('0 0 0 0 0 0')['command_blocks']
             self.assertEqual(len({b['universe'] for b in blocks}),5)
-            self.assertTrue(all(b['step']==0 for b in blocks))
+            self.assertTrue(all(b.get('delta',0)==0 for b in blocks))
 
     def test_duplicate_coordinate_key_cannot_overwrite(self):
         with tempfile.TemporaryDirectory() as tmp:

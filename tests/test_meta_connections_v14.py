@@ -1,3 +1,4 @@
+from history_assertions import steps
 """Meta connection registry, BASE independence, and counterless path recording."""
 import json
 import os
@@ -92,11 +93,11 @@ print('standalone succeeded')
             self.assertEqual(t.navigator_engine.compact_state()["functions"][0]["k"], 3)
             t.process_command("sticky save generic_host")
             note = t.sticky_note.get_note("generic_host")
-            self.assertEqual([event["command"] for event in note["plan"]],
+            self.assertEqual([event["command"] for event in steps(t.sticky_note, note)],
                              ["sticky start", "function k**2", "echo a", "help", "invalid", "sticky save generic_host"])
-            self.assertEqual([event["source"] for event in note["plan"]],
+            self.assertEqual([event["source"] for event in steps(t.sticky_note, note)],
                              ["oais", "oais", "counterless", "counterless", "counterless", "oais"])
-            self.assertTrue(note["plan"][-2]["failed"])
+            self.assertTrue(steps(t.sticky_note, note)[-2]["failed"])
             self.assertEqual(len(t.replay_engine.available()), 1)
             # Reloading a counterless source is valid, not rejected as 'base or oais'.
             checkpoint = t.navigation_context()

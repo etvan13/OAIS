@@ -12,15 +12,15 @@ class TerminalStorageTests(unittest.TestCase):
     def test_terminal_namespaces_are_independent_and_safe(self):
         with tempfile.TemporaryDirectory() as tmp:
             dm = DataManager(base_dir=Path(tmp))
-            dm.save_terminal_data('deep_base', 'sticky_notes_commands', {'notes': [{'id': 'a'}]})
-            dm.save_terminal_data('oais_standalone', 'sticky_notes_commands', {'notes': [{'id': 'b'}]})
-            self.assertEqual(dm.load_terminal_data('deep_base', 'sticky_notes_commands')['notes'][0]['id'], 'a')
-            self.assertEqual(dm.load_terminal_data('oais_standalone', 'sticky_notes_commands')['notes'][0]['id'], 'b')
+            dm.save_terminal_data('deep_base', 'sticky_notes', {'notes': [{'id': 'a'}]})
+            dm.save_terminal_data('oais_standalone', 'sticky_notes', {'notes': [{'id': 'b'}]})
+            self.assertEqual(dm.load_terminal_data('deep_base', 'sticky_notes')['notes'][0]['id'], 'a')
+            self.assertEqual(dm.load_terminal_data('oais_standalone', 'sticky_notes')['notes'][0]['id'], 'b')
             self.assertTrue((Path(tmp)/'terminal_data'/'deep_base'/'sticky_notes_commands.json').exists())
             with self.assertRaises(ValueError):
-                dm.save_terminal_data('../escape', 'sticky_notes_commands', {})
+                dm.save_terminal_data('../escape', 'sticky_notes', {})
 
-    def test_new_note_has_function_catalog_and_no_coordinate_header(self):
+    def test_new_note_has_initial_context_and_no_coordinate_header(self):
         with tempfile.TemporaryDirectory() as tmp:
             dm = DataManager(base_dir=Path(tmp)/'Data')
             term = OaisTerminal(counter=Counter(load_state=False, save_path=Path(tmp)/'state.json'),
@@ -47,14 +47,15 @@ class TerminalStorageTests(unittest.TestCase):
             command('sticky stop')
             self.assertTrue(command('sticky save example').startswith('Saved '))
             note = term.sticky_note.get_note('example')
-            self.assertEqual(note['functions'][0]['f'], 'k**3')
-            self.assertEqual(note['functions'][0]['direction'], 1)
+            self.assertEqual(note['start_state']['functions'][0]['f'], 'k**3')
+            self.assertEqual(note['start_state']['functions'][0]['direction'], 1)
             self.assertEqual(note['blocks'], 5)
-            self.assertEqual(len(note['functions']), 2)  # turn switches on that event
+            self.assertNotIn('functions',note)
+            self.assertNotIn('plan',note)
             self.assertEqual(dm.get_objects_at_coordinate('0 0 0 0 0 0', 'sticky_note'), [])
             records = dm.get_coordinate_node('0 0 0 0 0 0')['command_blocks']
-            self.assertEqual(records[0]['function'], 0)
-            self.assertEqual(set(records[0]), {'command', 'universe', 'function', 'step', 'source'})
+            self.assertNotIn('function',records[0])
+            self.assertEqual(set(records[0]), {'command', 'universe', 'source'})
             _, replayed = term.sticky_note.load_path(note['id'])
             self.assertEqual(len(replayed), 5)
             self.assertEqual(replayed[-2]['value'], 'navigator turn'

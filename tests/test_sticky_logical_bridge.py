@@ -38,7 +38,7 @@ class LogicalBridgeTests(unittest.TestCase):
                 read = send('oais sticky read pty_cubic')
                 self.assertIn('STICKY NOTE:',read)
                 # Switching directly into OAIS no longer replays cached output.
-                self.assertNotIn('virtual:27 0 0 0 0 0',read)
+                self.assertIn('virtual:27 0 0 0 0 0',read)  # reconstructed trace
                 proc.sendline('exit');proc.expect(pexpect.EOF)
             finally:
                 proc.close(force=True)

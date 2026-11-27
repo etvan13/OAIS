@@ -1,3 +1,4 @@
+from history_assertions import steps
 """v11 compact navigation persistence and self-contained future Replay inputs."""
 import json
 from pathlib import Path
@@ -32,55 +33,7 @@ class StorageReadinessV11Tests(unittest.TestCase):
                             'universe_before':universe,
                             'universe_after':term.host_counter.universes})
 
-    @staticmethod
-    def reconstruct_math_from_private_note(note):
-        """Test-only simulation: no DataManager reads, saved blocks, or command IO.
-
-        This verifies the note has enough data for *future* Replay, but is not
-        itself a Replay implementation or command execution.
-        """
-        engine = NavigatorEngine(VirtualCounter())
-        engine.restore_portable(note['start_state'])
-        context = note['start_state']
-        source = context['source']
-        source_absolute = address_to_integer(context['source_coordinate'],
-                                             context['source_universes'])
-        for event in note['plan']:
-            delta = event.get('delta', 0)
-            if event['source'] == source:
-                source_absolute += delta
-                position, universe = integer_to_address(source_absolute)
-                engine.virtual.observe_host(position, universe)
-            op = event['op']
-            if op in ('open', 'push', 'child'):
-                if event.get('anchor') is not None:
-                    engine.reset_to_linear(event['anchor'], event.get('anchor_universes',0))
-                if op == 'open':
-                    engine.open_pole(event['f'])
-                elif op == 'push':
-                    engine.push_function(event['f'])
-                else:
-                    engine.open_child(event['f'])
-            elif op == 'auto':
-                engine.advance_automatic()
-            elif op == 'auto_back':
-                engine.advance_host_direction(-1)
-            elif op == 'auto_forward':
-                engine.advance_host_direction(1)
-            elif op in ('away', 'toward', 'turn', 'pause', 'resume'):
-                getattr(engine, op)()
-            elif op == 'hold':
-                engine.virtual.hold(); engine.pause()
-            elif op == 'sync':
-                engine.reset_to_linear(event['target'], event.get('target_universes',0))
-            elif op == 'none':
-                if delta and event['source'] == source and not engine.layers and engine.virtual.mode == 'free':
-                    engine.advance_linear(delta)
-            else:
-                raise AssertionError('Unrecognized stored navigation operation '+op)
-        return engine.compact_state()
-
-    def test_nested_reverse_note_reconstructs_from_private_json_only(self):
+    def test_nested_reverse_note_reconstructs_from_coordinates(self):
         with tempfile.TemporaryDirectory() as d:
             t = self.make(d)
             t.attach_host('3 0 0 0 0 0')
@@ -102,26 +55,23 @@ class StorageReadinessV11Tests(unittest.TestCase):
             self.assertEqual(note['start_state']['functions'], [
                 {'f':'k**3','k':3,'direction':1}, {'f':'k**2','k':2,'direction':1}])
             self.assertEqual(note['end'], '30 0 0 0 0 0')
-            self.assertEqual(note['blocks'], len(note['plan']))
-            self.assertTrue(any(s['op']=='push' and s.get('f')=='2*k' for s in note['plan']))
-            self.assertTrue(any(s['op']=='auto_back' for s in note['plan']))
+            self.assertEqual(note['blocks'], len(steps(t.sticky_note,note)))
+            self.assertTrue(any(s['op']=='push' and s.get('f')=='2*k' for s in steps(t.sticky_note,note)))
+            self.assertTrue(any(s['op']=='auto_back' for s in steps(t.sticky_note,note)))
             self.assertNotIn('pi_', json.dumps(note))
             self.assertNotIn('navigation', note)
             self.assertNotIn('origin', note)
             self.assertNotIn('transitions', note)
-            stored = t.data_manager.load_terminal_data('base','sticky_notes_commands')
-            self.assertEqual(stored['version'],3)
+            stored = t.data_manager.load_terminal_data('base','sticky_notes')
+            self.assertEqual(stored['version'],4)
             self.assertEqual(stored['notes'][-1],note)
-            # No coordinate reads are needed to reconstruct the mathematical
-            # endpoint, even though public command blocks remain in place.
-            end = self.reconstruct_math_from_private_note(json.loads(json.dumps(note)))
-            self.assertEqual(end['real'], note['end'])
-            self.assertEqual(end['functions'], [
-                {'f':'k**3','k':3,'direction':1}, {'f':'k**2','k':0,'direction':-1}])
+            _, reconstructed = t.sticky_note.load_path(note['id'])
+            end = reconstructed[-1]
+            self.assertEqual(end['coordinate_after'], note['end'])
+            self.assertEqual([(layer['step'],layer['leg']) for layer in end['logical_after'][1]],[(3,'away'),(0,'toward')])
             node = t.data_manager.get_coordinate_node('34 0 0 0 0 0')
             for block in node.get('command_blocks',[]):
-                self.assertTrue(set(block).issubset({'command','universe','function',
-                    'counter_universe','step','failed','source'}))
+                self.assertTrue(set(block).issubset({'command','universe','counter_universe','failed','source','op','f','delta','anchor','target','target_universe','source_origin','transition'}))
                 self.assertNotIn('event', block)
                 self.assertNotIn('title', block)
                 self.assertNotIn('note', block)
