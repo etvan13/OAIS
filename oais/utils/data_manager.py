@@ -648,14 +648,33 @@ class DataManager:
 
     @staticmethod
     def _load_block_file(path):
-        # Unlike legacy readers, never replace an unreadable existing file.
+        path = Path(path)
+
         try:
-            with path.open(encoding="utf-8") as stream:
-                data = json.load(stream)
+            content = path.read_text(encoding="utf-8")
         except FileNotFoundError:
             return {}
+
+        # Treat empty or uninitialized files as empty storage.
+        if not content.strip():
+            print(f"Warning: Empty storage file: {path}")
+            return {}
+
+        # Never silently overwrite malformed JSON.
+        try:
+            data = json.loads(content)
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                f"Corrupted JSON file: {path}. "
+                f"Original file preserved. {exc}"
+            ) from exc
+
         if not isinstance(data, dict):
-            raise ValueError(f"Malformed coordinate file: {path}")
+            raise ValueError(
+                f"Invalid storage structure: {path}. "
+                "Expected a JSON dictionary."
+            )
+
         return data
 
     def save_block(self, coordinate, block_type, content, universe, *,
